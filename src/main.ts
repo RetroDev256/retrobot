@@ -57,6 +57,7 @@ async function messageCreate(message: Message) {
     }
 
     // Anything after this point is a command
+    const command_prefix: string = ".";
     if (!message.content.startsWith(command_prefix)) return;
     const command = message.content.slice(command_prefix.length);
 
@@ -127,25 +128,6 @@ let rand64: () => bigint;
 let randBit: () => number;
 let randFloat: () => number;
 
-const intents = [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-    GatewayIntentBits.DirectMessages,
-    GatewayIntentBits.GuildModeration,
-];
-
-const partials = [
-    Partials.Message,
-    Partials.Channel,
-    Partials.User,
-    Partials.GuildMember,
-    Partials.ThreadMember,
-];
-
-const command_prefix: string = ".";
-
 function wasmCreate(): Promise<WebAssembly.Exports> {
     const buffer = readFileSync("./retrobot.wasm");
     const memory = new WebAssembly.Memory({ initial: 64 });
@@ -170,6 +152,23 @@ function wasmInitialize(exports: WebAssembly.Exports) {
 
 // Initialize everything
 async function main() {
+    const intents = [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMembers,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent,
+        GatewayIntentBits.DirectMessages,
+        GatewayIntentBits.GuildModeration,
+    ];
+
+    const partials = [
+        Partials.Message,
+        Partials.Channel,
+        Partials.User,
+        Partials.GuildMember,
+        Partials.ThreadMember,
+    ];
+
     const wasm_create = wasmCreate();
 
     const client = new Client({ intents, partials });
