@@ -41,16 +41,4 @@ pub fn build(b: *std.Build) void {
     const dotenv_copy = b.addSystemCommand(&.{ "cp", dotenv_path, b.exe_dir });
     dotenv_copy.step.dependOn(&install_wasm.step);
     b.default_step.dependOn(&dotenv_copy.step);
-
-    // Run the discord bot
-    const run_step = b.step("run", "Run the discord bot");
-    const run_cmd = b.addSystemCommand(&.{
-        "sh", "-c", try std.fmt.allocPrint(
-            b.allocator,
-            "cd {s} && bun run main.js",
-            .{b.exe_dir},
-        ),
-    });
-    run_step.dependOn(&run_cmd.step);
-    run_step.dependOn(b.default_step);
 }

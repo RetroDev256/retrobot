@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, MessageType } from "discord.js";
+import { Client, GatewayIntentBits } from "discord.js";
 
 // TODO: use zig somewhere
 // import { readFileSync } from "fs";
@@ -11,25 +11,25 @@ import { Client, GatewayIntentBits, MessageType } from "discord.js";
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMembers,
-        GatewayIntentBits.GuildModeration,
-        GatewayIntentBits.GuildIntegrations,
-        GatewayIntentBits.GuildWebhooks,
-        GatewayIntentBits.GuildInvites,
-        GatewayIntentBits.GuildVoiceStates,
-        GatewayIntentBits.GuildPresences,
         GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.GuildMessageReactions,
-        GatewayIntentBits.GuildMessageTyping,
-        GatewayIntentBits.DirectMessages,
-        GatewayIntentBits.DirectMessageReactions,
-        GatewayIntentBits.DirectMessageTyping,
         GatewayIntentBits.MessageContent,
-        GatewayIntentBits.GuildScheduledEvents,
-        GatewayIntentBits.AutoModerationConfiguration,
-        GatewayIntentBits.AutoModerationExecution,
-        GatewayIntentBits.GuildMessagePolls,
-        GatewayIntentBits.DirectMessagePolls,
+        GatewayIntentBits.DirectMessages,
+        // GatewayIntentBits.GuildMembers,
+        // GatewayIntentBits.GuildModeration,
+        // GatewayIntentBits.GuildIntegrations,
+        // GatewayIntentBits.GuildWebhooks,
+        // GatewayIntentBits.GuildInvites,
+        // GatewayIntentBits.GuildVoiceStates,
+        // GatewayIntentBits.GuildPresences,
+        // GatewayIntentBits.GuildMessageReactions,
+        // GatewayIntentBits.GuildMessageTyping,
+        // GatewayIntentBits.DirectMessageReactions,
+        // GatewayIntentBits.DirectMessageTyping,
+        // GatewayIntentBits.GuildScheduledEvents,
+        // GatewayIntentBits.AutoModerationConfiguration,
+        // GatewayIntentBits.AutoModerationExecution,
+        // GatewayIntentBits.GuildMessagePolls,
+        // GatewayIntentBits.DirectMessagePolls,
     ],
 });
 
@@ -48,7 +48,9 @@ client.on("ready", () => {
 // Greet new users with a friendly message
 client.on("guildMemberAdd", (member) => {
     const channel = member.guild.systemChannel;
-    if (channel) channel.send(`Welcome ${member}! o/`);
+    if (channel !== null) {
+        channel.send(`Welcome ${member}! o/`);
+    }
 });
 
 client.on("messageCreate", (message) => {
@@ -61,18 +63,19 @@ client.on("messageCreate", (message) => {
 
 // Handle simple message response templates
 function simple(message: any): boolean {
-    const templates: Record<string, string> = {
-        ping: "pong",
-        "no u": "no u",
-    };
-
-    const response = templates[message.content];
-    if (response !== undefined) {
-        message.reply(response);
-        return true;
+    switch (message.content) {
+        case "ping":
+            message.reply("pong");
+            break;
+        case "no u":
+            message.reply("no u");
+            break;
+        default:
+            return false;
+            break;
     }
 
-    return false;
+    return true;
 }
 
 client.login(process.env.DISCORD_TOKEN);
