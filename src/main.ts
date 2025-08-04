@@ -45,7 +45,7 @@ client.on("ready", () => {
     }
 });
 
-// Greet new users
+// Greet new users with a friendly message
 client.on("guildMemberAdd", (member) => {
     const channel = member.guild.systemChannel;
     if (channel) channel.send(`Welcome ${member}! o/`);
@@ -62,7 +62,7 @@ client.on("messageCreate", (message) => {
 // Handle simple message response templates
 function simple(message: any): boolean {
     const templates: Record<string, string> = {
-        "ping": "pong",
+        ping: "pong",
         "no u": "no u",
     };
 
