@@ -62,7 +62,7 @@ client.on("messageCreate", (message) => {
 // Handle simple message response templates
 function simple(message: any): boolean {
     const templates: Record<string, string> = {
-        ping: "pong",
+        "ping": "pong",
         "no u": "no u",
     };
 
