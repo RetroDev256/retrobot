@@ -16,6 +16,9 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
+    wasm.stack_size = 1 << 16;
+    wasm.import_memory = true;
+    wasm.initial_memory = 64 << 16;
     wasm.dead_strip_dylibs = true;
     wasm.root_module.strip = true;
     wasm.rdynamic = true;

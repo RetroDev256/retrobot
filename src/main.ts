@@ -1,12 +1,28 @@
 import { Client, Message, GatewayIntentBits, Partials } from "discord.js";
+import { readFileSync } from "fs";
 
-// TODO: use zig somewhere
-// import { readFileSync } from "fs";
-// // Load WASM & exported functions
-// const wasm_buffer = readFileSync("./retrobot.wasm");
-// const wasm_module = await WebAssembly.instantiate(wasm_buffer);
-// const wasm_exports = wasm_module.instance.exports;
-// const foo: () => number = wasm_exports.foo;
+// Load WASM & exported functions
+const wasm_buffer = readFileSync("./retrobot.wasm");
+const wasm_memory = new WebAssembly.Memory({ initial: 64 });
+
+const imports = {
+    env: {
+        getRandom: (ptr: number, len: number) => {
+            const mem = new Uint8Array(wasm_memory.buffer, ptr, len);
+            crypto.getRandomValues(mem);
+        },
+        memory: wasm_memory,
+    },
+};
+
+const wasm_module = await WebAssembly.instantiate(wasm_buffer, imports);
+const wasm_exports = wasm_module.instance.exports;
+
+const rand64: () => bigint = wasm_exports.rand64;
+const randBit: () => number = wasm_exports.randBit;
+const randFloat: () => number = wasm_exports.randFloat;
+
+wasm_exports.init();
 
 // TODO: .acr TEXT (acronymify TEXT)
 // TODO: .calc EXPR (evaluate EXPR)
@@ -66,14 +82,15 @@ client.on("messageCreate", async (message) => {
             await message.reply("pong");
             return;
         case "no u":
+        case "darn bot":
             await message.reply("no u");
             return;
     }
 
     // Help people make their simple decisions
-    const lower = message.content.toLowerCase();*:
+    const lower = message.content.toLowerCase();
     if (lower.startsWith("should i") || lower.startsWith("should we")) {
-        await message.reply(rand32() % 2 === 0 ? "yes" : "no");
+        await message.reply(randBit() === 0 ? "no" : "yes");
         return;
     }
 
@@ -114,13 +131,14 @@ function queries(command: string, message: Message): string[] | undefined {
             response.push(`Here's your random u64: 0x${b16_str}`);
             break;
         case "rand":
-            response.push(`Here's your random u64: ${rand64()}`);
+            const u64 = rand64() & 0xffff_ffff_ffff_ffffn;
+            response.push(`Here's your random u64: ${u64}`);
             break;
         case "randfloat":
             response.push(`Here's your random float: ${randFloat()}`);
             break;
         case "randbit":
-            response.push(`Here's your random bit: ${rand32() % 2}`);
+            response.push(`Here's your random bit: ${randBit()}`);
             break;
         default:
             return undefined;
@@ -141,26 +159,6 @@ function aggregate(many: string[]): string[] {
     }
     fewer.push(partial);
     return fewer;
-}
-
-// Cryptographically secure float [0, 1)
-function randFloat(): number {
-    const top53 = rand64() >> BigInt(11);
-    return Number(top53) / 0x20000000000000;
-}
-
-// Cryptographically secure u64
-function rand64(): bigint {
-    const low = BigInt(rand32());
-    const high = BigInt(rand32());
-    return (high << BigInt(32)) | low;
-}
-
-// Cryptographically secure u32
-function rand32(): number {
-    const parts = new Uint32Array(1);
-    crypto.getRandomValues(parts);
-    return parts[0] as number;
 }
 
 client.login(process.env.DISCORD_TOKEN);
