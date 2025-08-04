@@ -1,28 +1,12 @@
-import { Client, Message, GatewayIntentBits, Partials } from "discord.js";
+import {
+    Client,
+    Message,
+    GuildMember,
+    GatewayIntentBits,
+    Partials,
+} from "discord.js";
+
 import { readFileSync } from "fs";
-
-// Load WASM & exported functions
-const wasm_buffer = readFileSync("./retrobot.wasm");
-const wasm_memory = new WebAssembly.Memory({ initial: 64 });
-
-const imports = {
-    env: {
-        getRandom: (ptr: number, len: number) => {
-            const mem = new Uint8Array(wasm_memory.buffer, ptr, len);
-            crypto.getRandomValues(mem);
-        },
-        memory: wasm_memory,
-    },
-};
-
-const wasm_module = await WebAssembly.instantiate(wasm_buffer, imports);
-const wasm_exports = wasm_module.instance.exports;
-
-const rand64: () => bigint = wasm_exports.rand64;
-const randBit: () => number = wasm_exports.randBit;
-const randFloat: () => number = wasm_exports.randFloat;
-
-wasm_exports.init();
 
 // TODO: .acr TEXT (acronymify TEXT)
 // TODO: .calc EXPR (evaluate EXPR)
@@ -36,62 +20,40 @@ wasm_exports.init();
 // TODO: .b64-d TEXT/FILE (decode base-64 UTF-8)
 // TODO: .qr TEXT/FILE (generate QR code (binary?))
 
-const command_prefix: string = ".";
-
-const client = new Client({
-    intents: [
-        GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMembers,
-        GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent,
-        GatewayIntentBits.DirectMessages,
-        GatewayIntentBits.GuildModeration,
-    ],
-    partials: [
-        Partials.Message,
-        Partials.Channel,
-        Partials.User,
-        Partials.GuildMember,
-        Partials.ThreadMember,
-    ],
-});
-
-client.once("ready", () => {
+function ready(client: Client) {
     console.log("Logged in as", client.user?.tag);
     for (const guild of client.guilds.cache.values()) {
         console.log(" ".repeat(4), guild.name);
         console.log(" ".repeat(8), guild.memberCount, "members");
         console.log(" ".repeat(8), guild.channels.cache.size, "channels");
     }
-});
+}
 
 // Greet new users with a friendly message
-client.on("guildMemberAdd", (member) => {
+async function guildMemberAdd(member: GuildMember) {
     const channel = member.guild.systemChannel;
     if (channel === null) return;
-    channel.send(`Welcome ${member}! o/`);
-});
+    return channel.send(`Welcome ${member}! o/`);
+}
 
-client.on("messageCreate", async (message) => {
+// Handle message creation events in all contexts
+async function messageCreate(message: Message) {
     // Ignore messages from other bots
     if (message.author.bot) return;
 
     // Handle simple message templates
     switch (message.content) {
         case "ping":
-            await message.reply("pong");
-            return;
+            return message.reply("pong");
         case "no u":
         case "darn bot":
-            await message.reply("no u");
-            return;
+            return message.reply("no u");
     }
 
     // Help people make their simple decisions
     const lower = message.content.toLowerCase();
     if (lower.startsWith("should i") || lower.startsWith("should we")) {
-        await message.reply(randBit() === 0 ? "no" : "yes");
-        return;
+        return message.reply(randBit() === 0 ? "no" : "yes");
     }
 
     // Anything after this point is a command
@@ -107,7 +69,7 @@ client.on("messageCreate", async (message) => {
         }
         return;
     }
-});
+}
 
 // TODO: .randimg (random 256x256 grayscale image)
 // TODO: .maze (generate random maze)
@@ -161,4 +123,62 @@ function aggregate(many: string[]): string[] {
     return fewer;
 }
 
-client.login(process.env.DISCORD_TOKEN);
+let rand64: () => bigint;
+let randBit: () => number;
+let randFloat: () => number;
+
+const intents = [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.DirectMessages,
+    GatewayIntentBits.GuildModeration,
+];
+
+const partials = [
+    Partials.Message,
+    Partials.Channel,
+    Partials.User,
+    Partials.GuildMember,
+    Partials.ThreadMember,
+];
+
+const command_prefix: string = ".";
+
+function wasmCreate(): Promise<WebAssembly.Exports> {
+    const buffer = readFileSync("./retrobot.wasm");
+    const memory = new WebAssembly.Memory({ initial: 64 });
+
+    return WebAssembly.instantiate(buffer, {
+        env: {
+            getRandom: (ptr: number, len: number) => {
+                const mem = new Uint8Array(memory.buffer, ptr, len);
+                crypto.getRandomValues(mem);
+            },
+            memory: memory,
+        },
+    }).then((module: WebAssembly.Exports) => module.instance.exports);
+}
+
+function wasmInitialize(exports: WebAssembly.Exports) {
+    rand64 = exports.rand64;
+    randBit = exports.randBit;
+    randFloat = exports.randFloat;
+    exports.init();
+}
+
+// Initialize everything
+async function main() {
+    const wasm_create = wasmCreate();
+
+    const client = new Client({ intents, partials });
+    client.once("ready", ready);
+    client.on("guildMemberAdd", guildMemberAdd);
+    client.on("messageCreate", messageCreate);
+
+    wasmInitialize(await wasm_create);
+    client.login(process.env.DISCORD_TOKEN);
+}
+
+await main();
