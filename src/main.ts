@@ -33,19 +33,27 @@ const client = new Client({
 });
 
 client.on("ready", () => {
-    console.log(`Logged in as ${client.user?.tag}`);
+    const tab = " ".repeat(4);
+    console.log("Logged in as", client.user?.tag);
+    for (const [_, guild] of client.guilds.cache) {
+        console.log(tab, guild.name);
+        const member_count = guild.memberCount;
+        console.log(tab + tab, member_count, "members");
+        const channel_count = guild.channels.cache.size;
+        console.log(tab + tab, channel_count, "channels");
+    }
 });
 
-client.on("messageCreate", async (message) => {
+client.on("messageCreate", (message) => {
     // Ignore messages from other bots
     if (message.author.bot) return;
 
     switch (message.content) {
         case "ping":
-            await message.reply("pong");
+            message.reply("pong");
             break;
         case "no u":
-            await message.reply("no u");
+            message.reply("no u");
             break;
     }
 });
