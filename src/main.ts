@@ -1,7 +1,8 @@
-import { Client, GatewayIntentBits } from "discord.js";
-// import { readFileSync } from "fs";
+import { Client, GatewayIntentBits, MessageType } from "discord.js";
 
-// Load WASM & exported functions
+// TODO: use zig somewhere
+// import { readFileSync } from "fs";
+// // Load WASM & exported functions
 // const wasm_buffer = readFileSync("./retrobot.wasm");
 // const wasm_module = await WebAssembly.instantiate(wasm_buffer);
 // const wasm_exports = wasm_module.instance.exports;
@@ -44,18 +45,34 @@ client.on("ready", () => {
     }
 });
 
+// Greet new users
+client.on("guildMemberAdd", (member) => {
+    const channel = member.guild.systemChannel;
+    if (channel) channel.send(`Welcome ${member}! o/`);
+});
+
 client.on("messageCreate", (message) => {
     // Ignore messages from other bots
     if (message.author.bot) return;
 
-    switch (message.content) {
-        case "ping":
-            message.reply("pong");
-            break;
-        case "no u":
-            message.reply("no u");
-            break;
-    }
+    // Handle simple message templates
+    if (simple(message)) return;
 });
+
+// Handle simple message response templates
+function simple(message: any): boolean {
+    const templates: Record<string, string> = {
+        ping: "pong",
+        "no u": "no u",
+    };
+
+    const response = templates[message.content];
+    if (response !== undefined) {
+        message.reply(response);
+        return true;
+    }
+
+    return false;
+}
 
 client.login(process.env.DISCORD_TOKEN);
