@@ -40,9 +40,13 @@ client.on("messageCreate", async (message) => {
     // Ignore messages from other bots
     if (message.author.bot) return;
 
-    // Respond to "ping" with "pong"
-    if (message.content === "ping") {
-        await message.reply("pong");
+    switch (message.content) {
+        case "ping":
+            await message.reply("pong");
+            break;
+        case "no u":
+            await message.reply("no u");
+            break;
     }
 });
 
