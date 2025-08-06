@@ -44,4 +44,10 @@ pub fn build(b: *std.Build) void {
     const dotenv_copy = b.addSystemCommand(&.{ "cp", dotenv_path, b.exe_dir });
     dotenv_copy.step.dependOn(&install_wasm.step);
     b.default_step.dependOn(&dotenv_copy.step);
+
+    // Copy "static" to output directory
+    const static_path = try b.build_root.join(b.allocator, &.{"static"});
+    const static_copy = b.addSystemCommand(&.{ "cp", "-r", static_path, b.exe_dir });
+    static_copy.step.dependOn(&install_wasm.step);
+    b.default_step.dependOn(&static_copy.step);
 }

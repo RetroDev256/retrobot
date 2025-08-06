@@ -1,6 +1,6 @@
 .{
     .name = .retrobot,
     .version = "0.15.0-dev.1274+147a85280",
-    .paths = .{ "build.zig", "build.zig.zon", "src", "tsconfig.json" },
+    .paths = .{ "build.zig", "build.zig.zon", "src", "static", "tsconfig.json" },
     .fingerprint = 0xdc63ece8f19cd589,
 }

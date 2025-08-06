@@ -246,10 +246,10 @@ function initializeWasm(exports: WebAssembly.Exports) {
 }
 
 function loadWordLists() {
-    const n_text = fs.readFile("nouns.txt", "utf8");
-    const v_text = fs.readFile("verbs.txt", "utf8");
-    const a_text = fs.readFile("adverbs.txt", "utf8");
-    const j_text = fs.readFile("adjectives.txt", "utf8");
+    const n_text = fs.readFile("static/nouns.txt", "utf8");
+    const v_text = fs.readFile("static/verbs.txt", "utf8");
+    const a_text = fs.readFile("static/adverbs.txt", "utf8");
+    const j_text = fs.readFile("static/adjectives.txt", "utf8");
 
     const init_a = n_text.then((text) => (nouns = text.split("\n")));
     const init_b = v_text.then((text) => (verbs = text.split("\n")));
