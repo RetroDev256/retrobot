@@ -134,7 +134,7 @@ function simple(command: string, message: Message): string[] | undefined {
 // Handle more complex command queries
 function complex(command: string, _: Message): string[] | undefined {
     if (command.startsWith("acr ")) {
-        const trimmed = command.substring(4);
+        const trimmed = command.substring(4).toLowerCase();
         const cleaned = trimmed.replace(/[^a-zA-Z]/g, "");
         if (cleaned.length === 0) return undefined;
         const acronym = acrCommand(cleaned);
@@ -150,10 +150,11 @@ function complex(command: string, _: Message): string[] | undefined {
 function acrCommand(cleaned: string): string[] {
     assert(cleaned.length >= 1);
 
-    if (Number(rand64() % 4n) === 0) {
-        return Array.from(cleaned).map((letter) => getW(letter));
+    const u64 = rand64() & 0xffff_ffff_ffff_ffffn;
+    if (Number(u64 % 4n) === 0) {
+        return Array.from(cleaned).map((letter) => getW(letter, words));
     } else if (cleaned.length === 1) {
-        return [getW(cleaned[0]!)];
+        return [getW(cleaned[0]!, words)];
     } else {
         let selection: string[] = [];
 
@@ -163,48 +164,21 @@ function acrCommand(cleaned: string): string[] {
         const adj_count = cleaned.length - overhead;
 
         for (let i = 0; i < adj_count; i += 1) {
-            selection.push(getJ(cleaned[i]!));
+            selection.push(getW(cleaned[i]!, adjectives));
         }
 
-        selection.push(getN(cleaned[adj_count]!));
-        if (inc_verb) selection.push(getV(cleaned[adj_count + 1]!));
-        if (inc_adverb) selection.push(getA(cleaned[adj_count + 2]!));
+        selection.push(getW(cleaned[adj_count]!, nouns));
+        if (inc_verb) selection.push(getW(cleaned[adj_count + 1]!, verbs));
+        if (inc_adverb) selection.push(getW(cleaned[adj_count + 2]!, adverbs));
         return selection.slice(-cleaned.length);
     }
 }
 
-function getW(letter: string): string {
+function getW(letter: string, list: string[]): string {
     assert(letter.length == 1);
-    const choices = words.filter((word) => word.startsWith(letter));
-    const choice_idx = rand64() % BigInt(choices.length);
-    return choices[Number(choice_idx)]!;
-}
-
-function getN(letter: string): string {
-    assert(letter.length == 1);
-    const choices = nouns.filter((word) => word.startsWith(letter));
-    const choice_idx = rand64() % BigInt(choices.length);
-    return choices[Number(choice_idx)]!;
-}
-
-function getV(letter: string): string {
-    assert(letter.length == 1);
-    const choices = verbs.filter((word) => word.startsWith(letter));
-    const choice_idx = rand64() % BigInt(choices.length);
-    return choices[Number(choice_idx)]!;
-}
-
-function getA(letter: string): string {
-    assert(letter.length == 1);
-    const choices = adverbs.filter((word) => word.startsWith(letter));
-    const choice_idx = rand64() % BigInt(choices.length);
-    return choices[Number(choice_idx)]!;
-}
-
-function getJ(letter: string): string {
-    assert(letter.length == 1);
-    const choices = adjectives.filter((word) => word.startsWith(letter));
-    const choice_idx = rand64() % BigInt(choices.length);
+    const choices = list.filter((word) => word.startsWith(letter));
+    const u64 = rand64() & 0xffff_ffff_ffff_ffffn;
+    const choice_idx = u64 % BigInt(choices.length);
     return choices[Number(choice_idx)]!;
 }
 

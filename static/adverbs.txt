@@ -2722,6 +2722,7 @@ wryly
 wrongfully
 wrongheadedly
 wrongly
+xerically
 yea
 yesterday
 yet
