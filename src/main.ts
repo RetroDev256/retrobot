@@ -161,15 +161,15 @@ function acrCommand(cleaned: string): string[] {
         const inc_verb = randBool();
         const inc_adverb = inc_verb && randBool();
         const overhead = Number(inc_verb) + Number(inc_adverb) + 1;
-        const adj_count = cleaned.length - overhead;
+        const j_count = cleaned.length - overhead;
 
-        for (let i = 0; i < adj_count; i += 1) {
+        for (let i = 0; i < j_count; i += 1) {
             selection.push(getW(cleaned[i]!, adjectives));
         }
 
-        selection.push(getW(cleaned[adj_count]!, nouns));
-        if (inc_verb) selection.push(getW(cleaned[adj_count + 1]!, verbs));
-        if (inc_adverb) selection.push(getW(cleaned[adj_count + 2]!, adverbs));
+        selection.push(getW(cleaned[j_count]!, nouns));
+        if (inc_verb) selection.push(getW(cleaned[j_count + 1]!, verbs));
+        if (inc_adverb) selection.push(getW(cleaned[j_count + 2]!, adverbs));
         return selection.slice(-cleaned.length);
     }
 }
