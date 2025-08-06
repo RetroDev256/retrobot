@@ -18,8 +18,8 @@ export fn rand64() u64 {
     return csprng.int(u64);
 }
 
-export fn randBit() u32 {
-    return csprng.int(u1);
+export fn randBool() bool {
+    return csprng.boolean();
 }
 
 export fn randFloat() f64 {
