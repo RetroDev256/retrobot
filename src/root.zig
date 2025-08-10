@@ -1,12 +1,16 @@
 const std = @import("std");
 const api = @import("api.zig");
 const io = @import("io.zig");
-const rng = @import("rng.zig");
+const acr = @import("acr.zig");
 const tools = @import("tools.zig");
-const CommandMap = @import("CommandMap.zig");
 
-const prefix: []const u8 = ".";
+pub const prefix: []const u8 = ".";
 pub const gpa = std.heap.wasm_allocator;
+pub const csprng: std.Random = .{ .ptr = undefined, .fillFn = fillFn };
+extern fn fillRandomApi(ptr: [*]u8, len: usize) void;
+fn fillFn(_: *anyopaque, buf: []u8) void {
+    fillRandomApi(buf.ptr, buf.len);
+}
 
 // TODO: .emojis (not sure if I want to do this one)
 // TODO: .randimg (random 256x256 grayscale image)
@@ -22,13 +26,16 @@ pub const gpa = std.heap.wasm_allocator;
 // TODO: .b64-d TEXT/FILE (decode base-64 UTF-8)
 // TODO: .qr TEXT/FILE (generate QR code (binary?))
 
+// Must be called before any handling code
+export fn initApi() void {
+    acr.init() catch unreachable;
+}
+
 /// Parameters: one string on the string stack is the user message contents
 /// Return: the number of strings on the stack the OP is to be replied with
 export fn handleMessage() usize {
-    return handleMessageInner() catch |err| io.handle(err);
-}
+    errdefer unreachable;
 
-fn handleMessageInner() !usize {
     const message = api.popString();
     defer gpa.free(message);
 
@@ -37,6 +44,7 @@ fn handleMessageInner() !usize {
         handleNoU,
         handleRand,
         handleShoulds,
+        acr.handleAcr,
     }) |handler| {
         const response = try handler(message);
         if (response != 0) return response;
@@ -67,11 +75,11 @@ fn handleNoU(message: []const u8) !usize {
 
 // respond to case-insensitive "rand" command with random u64
 fn handleRand(message: []const u8) !usize {
-    if (tools.startsWithStatic(prefix ++ "rand", message)) {
+    if (tools.startsWith(prefix ++ "rand", message)) {
         var buffer: [64]u8 = undefined;
         var writer = std.Io.Writer.fixed(&buffer);
         try writer.writeAll("Here's your random u64: 0x");
-        try writer.printInt(rng.csprng.int(u64), 16, .upper, .{});
+        try writer.printInt(csprng.int(u64), 16, .upper, .{});
         try api.pushString(writer.buffered());
         return 1;
     } else {
@@ -84,7 +92,7 @@ fn handleShoulds(message: []const u8) !usize {
     const should_i = tools.startsWithInsensitive("should i", message);
     const should_we = tools.startsWithInsensitive("should we", message);
     if (should_i or should_we) {
-        const choice = rng.csprng.boolean();
+        const choice = csprng.boolean();
         try api.pushString(if (choice) "yes" else "no");
         return 1;
     } else {
@@ -95,7 +103,5 @@ fn handleShoulds(message: []const u8) !usize {
 comptime {
     _ = api;
     _ = io;
-    _ = rng;
     _ = tools;
-    _ = CommandMap;
 }

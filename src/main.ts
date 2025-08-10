@@ -4,11 +4,15 @@ import * as fs from "fs";
 const wasm_memory = new WebAssembly.Memory({ initial: 64 });
 
 const wasm_env = {
-    writeStdout: (ptr: number, len: number) => {
+    readFileApi: (ptr: number, len: number) => {
         const bytes = new Uint8Array(wasm_memory.buffer, ptr, len);
-        process.stdout.write(new TextDecoder("utf-8").decode(bytes));
+        pushString(fs.readFileSync(new TextDecoder().decode(bytes), "utf8"));
     },
-    fillRandom: (ptr: number, len: number) => {
+    writeStdoutApi: (ptr: number, len: number) => {
+        const bytes = new Uint8Array(wasm_memory.buffer, ptr, len);
+        process.stdout.write(new TextDecoder().decode(bytes));
+    },
+    fillRandomApi: (ptr: number, len: number) => {
         const bytes = new Uint8Array(wasm_memory.buffer, ptr, len);
         crypto.getRandomValues(bytes);
     },
@@ -19,7 +23,7 @@ const wasm_buffer = fs.readFileSync("retrobot.wasm");
 const wasm_module = new WebAssembly.Module(wasm_buffer);
 const wasm_instance = new WebAssembly.Instance(wasm_module, { env: wasm_env });
 const wasm_exports = wasm_instance.exports;
-wasm_exports.initCsprng();
+wasm_exports.initApi();
 
 const client = new Client({
     intents: [
@@ -63,7 +67,7 @@ client.on("messageCreate", async (message) => {
 
 function pushString(str: string): void {
     const utf_8 = new TextEncoder().encode(str);
-    const ptr = wasm_exports.pushString(utf_8.length);
+    const ptr = wasm_exports.pushStringApi(utf_8.length);
     const str_mem = new Uint8Array(wasm_memory.buffer, ptr, utf_8.length);
     str_mem.set(utf_8);
 }
@@ -73,7 +77,7 @@ function popString(): string {
     const len = wasm_exports.topLength();
     const str_mem = new Uint8Array(wasm_memory.buffer, ptr, len);
     const str = new TextDecoder().decode(str_mem);
-    wasm_exports.popString();
+    wasm_exports.popStringApi();
     return str;
 }
 
@@ -105,90 +109,6 @@ client.login(process.env.DISCORD_TOKEN);
 //     return undefined;
 // }
 
-// // Acronymify some text
-// function acrCommand(cleaned: string): string[] {
-//     assert(cleaned.length >= 1);
-//
-//     if (Number(randU64() % 4n) === 0 || cleaned.length > 16) {
-//         return Array.from(cleaned).map((letter) => getW(letter, words));
-//     } else if (cleaned.length === 1) {
-//         return [getW(cleaned[0]!, words)];
-//     } else {
-//         let selection: string[] = [];
-//
-//         const inc_verb = randBool();
-//         const inc_adverb = inc_verb && randBool();
-//         const overhead = Number(inc_verb) + Number(inc_adverb) + 1;
-//         const j_count = cleaned.length - overhead;
-//
-//         for (let i = 0; i < j_count; i += 1) {
-//             selection.push(getW(cleaned[i]!, adjectives));
-//         }
-//
-//         selection.push(getW(cleaned[j_count]!, nouns));
-//         if (inc_verb) selection.push(getW(cleaned[j_count + 1]!, verbs));
-//         if (inc_adverb) selection.push(getW(cleaned[j_count + 2]!, adverbs));
-//         return selection.slice(-cleaned.length);
-//     }
-// }
-
-// let words: string[][];
-// let nouns: string[][];
-// let verbs: string[][];
-// let adverbs: string[][];
-// let adjectives: string[][];
-//
-// // Get a random word from some starting letter
-// function getW(letter: string, list: string[][]): string {
-//     assert(letter.length === 1);
-//     assert(letter[0] === letter[0]?.toLowerCase());
-//     const letter_idx = letter.charCodeAt(0) - "a".charCodeAt(0);
-//     const choice_idx = randU64() % BigInt(list[letter_idx]!.length);
-//     return list[letter_idx]![Number(choice_idx)]!;
-// }
-//
-// function loadWordLists() {
-//     const n_text = fs.readFile("static/nouns.txt", "utf8");
-//     const v_text = fs.readFile("static/verbs.txt", "utf8");
-//     const a_text = fs.readFile("static/adverbs.txt", "utf8");
-//     const j_text = fs.readFile("static/adjectives.txt", "utf8");
-//
-//     const init_a = n_text.then(
-//         (text) => (nouns = partitionLetter(text.split("\n")))
-//     );
-//     const init_b = v_text.then(
-//         (text) => (verbs = partitionLetter(text.split("\n")))
-//     );
-//     const init_c = a_text.then(
-//         (text) => (adverbs = partitionLetter(text.split("\n")))
-//     );
-//     const init_d = j_text.then(
-//         (text) => (adjectives = partitionLetter(text.split("\n")))
-//     );
-//
-//     Promise.all([init_a, init_b, init_c, init_d]).then(() => {
-//         words = Array.from({ length: 26 }, () => []);
-//         for (let i = 0; i < 26; i += 1) {
-//             words[i] = [
-//                 ...(nouns[i] || []),
-//                 ...(verbs[i] || []),
-//                 ...(adverbs[i] || []),
-//                 ...(adjectives[i] || []),
-//             ];
-//         }
-//     });
-// }
-//
-// function partitionLetter(word_list: string[]): string[][] {
-//     const lists: string[][] = Array.from({ length: 26 }, () => []);
-//     for (const word of word_list) {
-//         assert(word.length !== 0);
-//         assert(word[0] === word[0]?.toLowerCase());
-//         const letter_idx = word.charCodeAt(0) - "a".charCodeAt(0);
-//         lists[letter_idx]!.push(word);
-//     }
-//     return lists;
-// }
 
 // function randU64(): bigint {
 //     return rand64() & 0xffff_ffff_ffff_ffffn;

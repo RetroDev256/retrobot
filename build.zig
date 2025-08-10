@@ -44,9 +44,18 @@ pub fn build(b: *std.Build) void {
     dotenv_copy.step.dependOn(&install_wasm.step);
     b.default_step.dependOn(&dotenv_copy.step);
 
-    // Copy "static" to output directory
-    const static_path = try b.build_root.join(b.allocator, &.{"static"});
-    const static_copy = b.addSystemCommand(&.{ "cp", "-r", static_path, b.exe_dir });
-    static_copy.step.dependOn(&install_wasm.step);
-    b.default_step.dependOn(&static_copy.step);
+    // Copy "words.txt" to output directory
+    const words_path = try b.build_root.join(b.allocator, &.{"words.txt"});
+    const words_copy = b.addSystemCommand(&.{ "cp", words_path, b.exe_dir });
+    words_copy.step.dependOn(&install_wasm.step);
+    b.default_step.dependOn(&words_copy.step);
+
+    // Optimize WASM binary using wasm-opt
+    const wasm_path = try std.fmt.allocPrint(b.allocator, "{s}/retrobot.wasm", .{b.exe_dir});
+    defer b.allocator.free(wasm_path);
+    const wasm_opt = b.addSystemCommand(&.{
+        "wasm-opt", "--enable-bulk-memory-opt", "-O4", wasm_path, "-o", wasm_path,
+    });
+    wasm_opt.step.dependOn(&install_wasm.step);
+    b.default_step.dependOn(&wasm_opt.step);
 }

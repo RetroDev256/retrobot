@@ -1,21 +1,12 @@
 const std = @import("std");
-const io = @import("io.zig");
 
 /// Global string storage for API from TS <-> Zig
 var string_stack: std.ArrayListUnmanaged([]const u8) = .empty;
 const gpa: std.mem.Allocator = @import("root").gpa;
 
-comptime {
-    @export(&pushStringApi, .{ .name = "pushString" });
-    @export(&popStringApi, .{ .name = "popString" });
-}
-
 /// Allocates a string on the top of the string stack
-fn pushStringApi(len: usize) callconv(.c) [*]u8 {
-    return pushStringApiInner(len) catch |err| io.handle(err);
-}
-
-inline fn pushStringApiInner(len: usize) ![*]u8 {
+export fn pushStringApi(len: usize) [*]u8 {
+    errdefer unreachable;
     const new_str = try gpa.alloc(u8, len);
     errdefer gpa.free(new_str);
     try string_stack.append(gpa, new_str);
@@ -35,7 +26,7 @@ export fn topPointer() [*]const u8 {
 }
 
 /// Frees and pops the string off of the top of the stack
-fn popStringApi() callconv(.c) void {
+export fn popStringApi() void {
     const top = string_stack.items.len - 1;
     gpa.free(string_stack.items[top]);
     string_stack.items.len -= 1;
