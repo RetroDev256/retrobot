@@ -33,8 +33,7 @@ pub fn build(b: *std.Build) void {
     // Build typescript source
     const ts_source = try b.build_root.join(b.allocator, &.{"src/main.ts"});
     const bun_build = b.addSystemCommand(&.{
-        "bun",     "build",    ts_source, "--outdir",
-        b.exe_dir, "--target", "bun",     "--sourcemap",
+        "bun", "build", ts_source, "--outdir", b.exe_dir, "--target", "bun",
     });
     bun_build.step.dependOn(&discord_add.step);
     b.default_step.dependOn(&bun_build.step);
