@@ -2,75 +2,100 @@ const std = @import("std");
 const api = @import("api.zig");
 const io = @import("io.zig");
 const rng = @import("rng.zig");
+const tools = @import("tools.zig");
+const CommandMap = @import("CommandMap.zig");
 
-const cmd_prefix: []const u8 = ".";
+const prefix: []const u8 = ".";
 pub const gpa = std.heap.wasm_allocator;
 
-/// Compares two strings
-inline fn eqlString(a: []const u8, b: []const u8) bool {
-    return std.mem.eql(u8, a, b);
-}
-
-/// Compares two strings case-insensitively.
-fn eqlInsensitive(a: []const u8, comptime b: []const u8) bool {
-    if (a.len != b.len) return false;
-    inline for (a, b) |byte_a, byte_b| {
-        const lower_a = std.ascii.toLower(byte_a);
-        const lower_b = comptime std.ascii.toLower(byte_b);
-        if (lower_a != lower_b) return false;
-    }
-    return true;
-}
-
-/// std.mem.startsWith but case-insensitive comparison.
-fn startsWithInsensitive(a: []const u8, comptime b: []const u8) bool {
-    if (a.len < b.len) return false;
-    return eqlInsensitive(a[0..b.len], b);
-}
+// TODO: .emojis (not sure if I want to do this one)
+// TODO: .randimg (random 256x256 grayscale image)
+// TODO: .maze (generate random maze)
+// TODO: .calc EXPR (evaluate EXPR)
+// TODO: .say MSG (parrot MSG)
+// TODO: .info ID/Mention (get user info)
+// TODO: .msg ID/Mention MSG (DM MSG to user)
+// TODO: .bf PROG (evaluate BF program (limited))
+// TODO: .hex TEXT/FILE (encode base-16 UTF-8)
+// TODO: .b64 TEXT/FILE (encode base-64 UTF-8)
+// TODO: .hex-d TEXT/FILE (decode base-16 UTF-8)
+// TODO: .b64-d TEXT/FILE (decode base-64 UTF-8)
+// TODO: .qr TEXT/FILE (generate QR code (binary?))
 
 /// Parameters: one string on the string stack is the user message contents
 /// Return: the number of strings on the stack the OP is to be replied with
 export fn handleMessage() usize {
-    errdefer |err| io.handle(err);
+    return handleMessageInner() catch |err| io.handle(err);
+}
+
+fn handleMessageInner() !usize {
     const message = api.popString();
     defer gpa.free(message);
 
-    // respond to case-insensitive "ping" with "pong"
-    if (eqlInsensitive(message, "ping")) {
+    inline for (&.{
+        handlePing,
+        handleNoU,
+        handleRand,
+        handleShoulds,
+    }) |handler| {
+        const response = try handler(message);
+        if (response != 0) return response;
+    }
+
+    return 0;
+}
+
+// respond to case-insensitive "ping" with "pong"
+fn handlePing(message: []const u8) !usize {
+    if (tools.insensitiveEql("ping", message)) {
         try api.pushString("pong");
         return 1;
+    } else {
+        return 0;
     }
+}
 
-    // respond to case insensitive "no u" with "no u"
-    if (eqlInsensitive(message, "no u")) {
+// respond to case-insensitive "no u" with "no u"
+fn handleNoU(message: []const u8) !usize {
+    if (tools.insensitiveEql("no u", message)) {
         try api.pushString("no u");
         return 1;
+    } else {
+        return 0;
     }
+}
 
-    // respond to "should i..." and "should we..." with random decision
-    const should_i = startsWithInsensitive(message, "should i");
-    const should_we = startsWithInsensitive(message, "should we");
-    if (should_i or should_we) {
-        const choice = rng.csprng.boolean();
-        try api.pushString(if (choice) "yes" else "no");
-        return 1;
-    }
-
-    // respond to "rand" command with random u64
-    if (eqlString(message, cmd_prefix ++ "rand")) {
+// respond to case-insensitive "rand" command with random u64
+fn handleRand(message: []const u8) !usize {
+    if (tools.startsWithStatic(prefix ++ "rand", message)) {
         var buffer: [64]u8 = undefined;
         var writer = std.Io.Writer.fixed(&buffer);
         try writer.writeAll("Here's your random u64: 0x");
         try writer.printInt(rng.csprng.int(u64), 16, .upper, .{});
         try api.pushString(writer.buffered());
         return 1;
+    } else {
+        return 0;
     }
+}
 
-    return 0;
+// respond to "should i..." and "should we..." with random decision
+fn handleShoulds(message: []const u8) !usize {
+    const should_i = tools.startsWithInsensitive("should i", message);
+    const should_we = tools.startsWithInsensitive("should we", message);
+    if (should_i or should_we) {
+        const choice = rng.csprng.boolean();
+        try api.pushString(if (choice) "yes" else "no");
+        return 1;
+    } else {
+        return 0;
+    }
 }
 
 comptime {
     _ = api;
     _ = io;
     _ = rng;
+    _ = tools;
+    _ = CommandMap;
 }

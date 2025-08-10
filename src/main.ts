@@ -90,20 +90,6 @@ client.login(process.env.DISCORD_TOKEN);
 //     }
 // }
 
-// TODO: .emojis (not sure if I want to do this one)
-// TODO: .randimg (random 256x256 grayscale image)
-// TODO: .maze (generate random maze)
-// TODO: .calc EXPR (evaluate EXPR)
-// TODO: .say MSG (parrot MSG)
-// TODO: .info ID/Mention (get user info)
-// TODO: .msg ID/Mention MSG (DM MSG to user)
-// TODO: .bf PROG (evaluate BF program (limited))
-// TODO: .hex TEXT/FILE (encode base-16 UTF-8)
-// TODO: .b64 TEXT/FILE (encode base-64 UTF-8)
-// TODO: .hex-d TEXT/FILE (decode base-16 UTF-8)
-// TODO: .b64-d TEXT/FILE (decode base-64 UTF-8)
-// TODO: .qr TEXT/FILE (generate QR code (binary?))
-
 // // Handle more complex command queries
 // function complex(command: string, _: Message): string[] | undefined {
 //     if (command.startsWith("acr ")) {

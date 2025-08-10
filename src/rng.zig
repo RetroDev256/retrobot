@@ -1,5 +1,4 @@
 const std = @import("std");
-const io = @import("io.zig");
 const Csprng = std.Random.DefaultCsprng;
 
 extern fn fillRandom(ptr: [*]u8, len: usize) void;

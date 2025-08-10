@@ -12,7 +12,10 @@ comptime {
 
 /// Allocates a string on the top of the string stack
 fn pushStringApi(len: usize) callconv(.c) [*]u8 {
-    errdefer |err| io.handle(err);
+    return pushStringApiInner(len) catch |err| io.handle(err);
+}
+
+inline fn pushStringApiInner(len: usize) ![*]u8 {
     const new_str = try gpa.alloc(u8, len);
     errdefer gpa.free(new_str);
     try string_stack.append(gpa, new_str);
@@ -45,7 +48,7 @@ pub fn pushString(str: []const u8) !void {
     try string_stack.append(gpa, new_str);
 }
 
-/// topLength & topPointer & popStringApi combined Zig code
+/// topLength & topPointer & popStringApi combined for Zig code
 pub fn popString() []const u8 {
     const top = string_stack.items.len - 1;
     string_stack.items.len -= 1;
