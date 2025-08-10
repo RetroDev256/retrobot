@@ -46,10 +46,10 @@ client.once("ready", (client) => {
     }
 });
 
-client.on("guildMemberAdd", (member) => {
+client.on("guildMemberAdd", async (member) => {
     const channel = member.guild.systemChannel;
     if (channel === null) return;
-    return channel.send(`Welcome ${member}! o/`);
+    await channel.send(`Welcome ${member}! o/`);
 });
 
 client.on("messageCreate", async (message) => {
