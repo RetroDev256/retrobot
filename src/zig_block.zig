@@ -66,13 +66,12 @@ fn colorAnsiZig(zig_code: [:0]const u8, buffer: *[2000]u8) ![]const u8 {
     while (true) {
         const token = toker.next();
         if (token.tag == .eof) break;
+        const token_str = zig_code[token.loc.start..token.loc.end];
 
         const token_color: Color = switch (token.tag) {
             .identifier,
             => blk: {
-                const slice = zig_code[token.loc.start..token.loc.end];
-
-                if (tools.isUpper(slice[0]) or isPrimitive(slice)) {
+                if (tools.isUpper(token_str[0]) or isPrimitive(token_str)) {
                     break :blk .magenta;
                 }
 
@@ -80,7 +79,7 @@ fn colorAnsiZig(zig_code: [:0]const u8, buffer: *[2000]u8) ![]const u8 {
                     break :blk .cyan;
                 }
 
-                for (slice) |byte| {
+                for (token_str) |byte| {
                     if (tools.isUpper(byte)) {
                         break :blk .cyan;
                     }
@@ -145,12 +144,14 @@ fn colorAnsiZig(zig_code: [:0]const u8, buffer: *[2000]u8) ![]const u8 {
             else => .white,
         };
 
+        const leading = zig_code[last_index..token.loc.start];
+        try writer.writeAll(leading);
+
         if (token_color != current_color) {
             try writer.writeAll(token_color.code());
             current_color = token_color;
         }
 
-        const token_str = zig_code[last_index..token.loc.end];
         try writer.writeAll(token_str);
         last_index = token.loc.end;
     }
