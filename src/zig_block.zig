@@ -29,6 +29,7 @@ pub fn handleZigBlock(message: []const u8) !usize {
             last_idx = end_idx + 3;
         } else break;
     }
+
     return response;
 }
 
