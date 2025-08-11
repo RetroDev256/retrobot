@@ -82,7 +82,10 @@ fn handleRand(message: []const u8) !usize {
         var buffer: [64]u8 = undefined;
         var writer = std.Io.Writer.fixed(&buffer);
         try writer.writeAll("Here's your random u64: `0x");
-        try writer.printInt(csprng.int(u64), 16, .upper, .{});
+        try writer.printInt(csprng.int(u64), 16, .upper, .{
+            .width = 16,
+            .fill = '0',
+        });
         try writer.writeByte('`');
         try api.pushString(writer.buffered());
         return 1;
