@@ -42,7 +42,7 @@ pub fn handleAcr(message: []const u8) !usize {
     var msg_length: usize = 0;
 
     for (acronym) |byte| {
-        const letter: u8 = byte -% 'a';
+        const letter: u8 = tools.toLower(byte) -% 'a';
         if (letter < 26) {
             const prng: std.Random = root.csprng;
             const options = words[letter].len;
