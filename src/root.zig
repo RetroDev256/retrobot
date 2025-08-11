@@ -5,9 +5,10 @@ const io = @import("io.zig");
 const tools = @import("tools.zig");
 const zig_block = @import("zig_block.zig");
 
-pub const prefix: []const u8 = "?";
+pub const prefix: []const u8 = ".";
 pub const gpa = std.heap.wasm_allocator;
 pub const csprng: std.Random = .{ .ptr = undefined, .fillFn = fillFn };
+
 extern fn fillRandomApi(ptr: [*]u8, len: usize) void;
 fn fillFn(_: *anyopaque, buf: []u8) void {
     fillRandomApi(buf.ptr, buf.len);
