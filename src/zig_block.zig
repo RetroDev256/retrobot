@@ -176,12 +176,20 @@ pub fn isPrimitive(name: []const u8) bool {
             return true;
         }
     }
-    if (name.len < 2) return false;
-    const first_c = name[0];
-    if (first_c != 'i' and first_c != 'u') return false;
-    for (name[1..]) |c| switch (c) {
-        '0'...'9' => {},
-        else => return false,
-    };
+
+    if (name.len < 2) {
+        return false;
+    }
+
+    if (name[0] != 'i' and name[0] != 'u') {
+        return false;
+    }
+
+    for (name[1..]) |c| {
+        if (!tools.isDigit(c)) {
+            return false;
+        }
+    }
+
     return true;
 }
