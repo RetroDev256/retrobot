@@ -6,7 +6,6 @@ const root = @import("root");
 const prefix = root.prefix;
 const gpa = root.gpa;
 
-const List = std.ArrayListUnmanaged;
 var words: [26][]const []const u8 = undefined;
 
 pub fn init() !void {
@@ -14,12 +13,12 @@ pub fn init() !void {
 }
 
 fn splitList(text: []const u8) ![26][]const []const u8 {
-    var letter_lists: [26]List([]const u8) = @splat(.empty);
+    var letter_lists: [26]std.ArrayListUnmanaged([]const u8) = @splat(.empty);
     defer for (&letter_lists) |*list| list.deinit(gpa);
 
     var toker = std.mem.tokenizeScalar(u8, text, '\n');
     while (toker.next()) |word| {
-        const letter = word[0] - 'a';
+        const letter = tools.toLower(word[0]) - 'a';
         try letter_lists[letter].append(gpa, word);
     }
 

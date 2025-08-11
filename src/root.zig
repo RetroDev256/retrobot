@@ -1,8 +1,9 @@
 const std = @import("std");
+const acr = @import("acr.zig");
 const api = @import("api.zig");
 const io = @import("io.zig");
-const acr = @import("acr.zig");
 const tools = @import("tools.zig");
+const zig_block = @import("zig_block.zig");
 
 pub const prefix: []const u8 = ".";
 pub const gpa = std.heap.wasm_allocator;
@@ -45,6 +46,7 @@ export fn handleMessage() usize {
         handleRand,
         handleShoulds,
         acr.handleAcr,
+        zig_block.handleZigBlock,
     }) |handler| {
         const response = try handler(message);
         if (response != 0) return response;
@@ -101,6 +103,7 @@ fn handleShoulds(message: []const u8) !usize {
 }
 
 comptime {
+    _ = acr;
     _ = api;
     _ = io;
     _ = tools;
