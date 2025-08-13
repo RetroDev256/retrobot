@@ -60,7 +60,7 @@ fn colorAnsiZig(zig_code: [:0]const u8, buffer: *[2000]u8) ![]const u8 {
     try writer.writeAll("```ansi\n");
 
     var last_index: usize = 0;
-    var current_color: Color = .white;
+    var current_color: Color = .blue;
 
     var toker: std.zig.Tokenizer = .init(zig_code);
     while (true) {
@@ -85,7 +85,7 @@ fn colorAnsiZig(zig_code: [:0]const u8, buffer: *[2000]u8) ![]const u8 {
                     }
                 }
 
-                break :blk .blue;
+                break :blk .white;
             },
             .string_literal,
             .multiline_string_literal_line,
@@ -141,7 +141,7 @@ fn colorAnsiZig(zig_code: [:0]const u8, buffer: *[2000]u8) ![]const u8 {
             .keyword_volatile,
             .keyword_while,
             => .yellow,
-            else => .white,
+            else => .blue,
         };
 
         const leading = zig_code[last_index..token.loc.start];
@@ -171,7 +171,7 @@ const primitives = &.{
     "usize",       "void",
 };
 
-pub fn isPrimitive(name: []const u8) bool {
+fn isPrimitive(name: []const u8) bool {
     inline for (primitives) |primitive| {
         if (tools.eql(primitive, name)) {
             return true;
