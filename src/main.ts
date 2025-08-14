@@ -118,8 +118,6 @@ const wasm_module = new WebAssembly.Module(wasm_buffer);
 const wasm_instance = new WebAssembly.Instance(wasm_module, { env: wasm_env });
 const wasm_exports = wasm_instance.exports;
 
-(wasm_exports["initApi"] as () => void)();
-
 const allocateApi = wasm_exports["allocateApi"] as (len: number) => number;
 const handleEventApi = wasm_exports["handleEventApi"] as () => void;
 
@@ -128,4 +126,5 @@ client.on("raw", (packet) => {
     handleEventApi();
 });
 
+(wasm_exports["initApi"] as () => void)();
 client.login(process.env["DISCORD_TOKEN"]);
