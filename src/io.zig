@@ -38,5 +38,5 @@ pub var stdout: Writer = .{
 extern fn readFileApi(ptr: [*]const u8, len: usize) void;
 pub fn readFile(path: []const u8) []const u8 {
     readFileApi(path.ptr, path.len);
-    return api.popString();
+    return api.getString();
 }

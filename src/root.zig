@@ -33,79 +33,85 @@ export fn initApi() void {
     acr.init() catch unreachable;
 }
 
-/// Parameters: one string on the string stack is the user message contents
-/// Return: the number of strings on the stack the OP is to be replied with
-export fn handleMessage() usize {
-    errdefer unreachable;
-
-    const message = api.popString();
-    defer gpa.free(message);
-
-    inline for (&.{
-        handlePing,
-        handleNoU,
-        handleRand,
-        handleShoulds,
-        acr.handleAcr,
-        zig_block.handleZigBlock,
-    }) |handler| {
-        const response = try handler(message);
-        if (response != 0) return response;
-    }
-
-    return 0;
+export fn handleEventApi() void {
+    const string = api.getString();
+    io.stdout.print("string: {s}\n", .{string}) catch {};
+    io.stdout.flush() catch {};
 }
 
-// respond to case-insensitive "ping" with "pong"
-fn handlePing(message: []const u8) !usize {
-    if (tools.insensitiveEql("ping", message)) {
-        try api.pushString("pong");
-        return 1;
-    } else {
-        return 0;
-    }
-}
-
-// respond to case-insensitive "no u" with "no u"
-fn handleNoU(message: []const u8) !usize {
-    if (tools.insensitiveEql("no u", message)) {
-        try api.pushString("no u");
-        return 1;
-    } else {
-        return 0;
-    }
-}
-
-// respond to case-insensitive "rand" command with random u64
-fn handleRand(message: []const u8) !usize {
-    if (tools.startsWith(prefix ++ "rand", message)) {
-        var buffer: [64]u8 = undefined;
-        var writer = std.Io.Writer.fixed(&buffer);
-        try writer.writeAll("Here's your random u64: `0x");
-        try writer.printInt(csprng.int(u64), 16, .upper, .{
-            .width = 16,
-            .fill = '0',
-        });
-        try writer.writeByte('`');
-        try api.pushString(writer.buffered());
-        return 1;
-    } else {
-        return 0;
-    }
-}
-
-// respond to "should i..." and "should we..." with random decision
-fn handleShoulds(message: []const u8) !usize {
-    const should_i = tools.startsWithInsensitive("should i", message);
-    const should_we = tools.startsWithInsensitive("should we", message);
-    if (should_i or should_we) {
-        const choice = csprng.boolean();
-        try api.pushString(if (choice) "yes" else "no");
-        return 1;
-    } else {
-        return 0;
-    }
-}
+// /// Parameters: one string on the string stack is the user message contents
+// /// Return: the number of strings on the stack the OP is to be replied with
+// export fn handleMessage() usize {
+//     errdefer unreachable;
+//
+//     const message = api.popString();
+//     defer gpa.free(message);
+//
+//     inline for (&.{
+//         handlePing,
+//         handleNoU,
+//         handleRand,
+//         handleShoulds,
+//         acr.handleAcr,
+//         zig_block.handleZigBlock,
+//     }) |handler| {
+//         const response = try handler(message);
+//         if (response != 0) return response;
+//     }
+//
+//     return 0;
+// }
+//
+// // respond to case-insensitive "ping" with "pong"
+// fn handlePing(message: []const u8) !usize {
+//     if (tools.insensitiveEql("ping", message)) {
+//         try api.pushString("pong");
+//         return 1;
+//     } else {
+//         return 0;
+//     }
+// }
+//
+// // respond to case-insensitive "no u" with "no u"
+// fn handleNoU(message: []const u8) !usize {
+//     if (tools.insensitiveEql("no u", message)) {
+//         try api.pushString("no u");
+//         return 1;
+//     } else {
+//         return 0;
+//     }
+// }
+//
+// // respond to case-insensitive "rand" command with random u64
+// fn handleRand(message: []const u8) !usize {
+//     if (tools.startsWith(prefix ++ "rand", message)) {
+//         var buffer: [64]u8 = undefined;
+//         var writer = std.Io.Writer.fixed(&buffer);
+//         try writer.writeAll("Here's your random u64: `0x");
+//         try writer.printInt(csprng.int(u64), 16, .upper, .{
+//             .width = 16,
+//             .fill = '0',
+//         });
+//         try writer.writeByte('`');
+//         try api.pushString(writer.buffered());
+//         return 1;
+//     } else {
+//         return 0;
+//     }
+// }
+//
+// // respond to "should i..." and "should we..." with random decision
+// fn handleShoulds(message: []const u8) !usize {
+//     const should_i = tools.startsWithInsensitive("should i", message);
+//     const should_we = tools.startsWithInsensitive("should we", message);
+//     if (should_i or should_we) {
+//         const choice = csprng.boolean();
+//         try api.pushString(if (choice) "yes" else "no");
+//         return 1;
+//     } else {
+//         return 0;
+//     }
+// }
 
 comptime {
     _ = acr;
