@@ -17,7 +17,7 @@ function readString(ptr: number, len: number): string {
 // For setting string parameters in TypeScript
 function setString(str: string): void {
     const utf_8 = new TextEncoder().encode(str);
-    const ptr = allocateApi(utf_8.length);
+    const ptr = allocateMem(utf_8.length);
     const str_mem = new Uint8Array(wasm_memory.buffer, ptr, utf_8.length);
     str_mem.set(utf_8);
 }
@@ -57,23 +57,6 @@ const wasm_env = {
             } catch {}
         })();
     },
-    sendMessageApi: (
-        channel_id_ptr: number,
-        channel_id_len: number,
-        content_ptr: number,
-        content_len: number
-    ) => {
-        (async () => {
-            try {
-                const channel_id = readString(channel_id_ptr, channel_id_len);
-                const content = readString(content_ptr, content_len);
-
-                const channel = await client.channels.fetch(channel_id);
-                if (!channel || !("send" in channel)) return;
-                await channel.send(content);
-            } catch {}
-        })();
-    },
     editMessageApi: (
         channel_id_ptr: number,
         channel_id_len: number,
@@ -95,19 +78,21 @@ const wasm_env = {
             } catch {}
         })();
     },
-    sendPrivateApi: (
-        user_id_ptr: number,
-        user_id_len: number,
-        content_ptr: number,
-        content_len: number
+    deleteMessageApi: (
+        channel_id_ptr: number,
+        channel_id_len: number,
+        message_id_ptr: number,
+        message_id_len: number
     ) => {
         (async () => {
             try {
-                const user_id = readString(user_id_ptr, user_id_len);
-                const content = readString(content_ptr, content_len);
+                const channel_id = readString(channel_id_ptr, channel_id_len);
+                const message_id = readString(message_id_ptr, message_id_len);
 
-                const user = await client.users.fetch(user_id);
-                await user.send(content);
+                const channel = await client.channels.fetch(channel_id);
+                if (!channel || !("messages" in channel)) return;
+                const message = await channel.messages.fetch(message_id);
+                await message.delete();
             } catch {}
         })();
     },
@@ -118,13 +103,13 @@ const wasm_module = new WebAssembly.Module(wasm_buffer);
 const wasm_instance = new WebAssembly.Instance(wasm_module, { env: wasm_env });
 const wasm_exports = wasm_instance.exports;
 
-const allocateApi = wasm_exports["allocateApi"] as (len: number) => number;
-const handleEventApi = wasm_exports["handleEventApi"] as () => void;
+const allocateMem = wasm_exports["allocateMem"] as (len: number) => number;
+const handleEvent = wasm_exports["handleEvent"] as () => void;
 
 client.on("raw", (packet) => {
     setString(JSON.stringify(packet));
-    handleEventApi();
+    handleEvent();
 });
 
-(wasm_exports["initApi"] as () => void)();
+(wasm_exports["init"] as () => void)();
 client.login(process.env["DISCORD_TOKEN"]);

@@ -9,9 +9,8 @@ pub const prefix: []const u8 = ".";
 pub const gpa = std.heap.wasm_allocator;
 pub const csprng: std.Random = .{ .ptr = undefined, .fillFn = fillFn };
 
-extern fn fillRandomApi(ptr: [*]u8, len: usize) void;
 fn fillFn(_: *anyopaque, buf: []u8) void {
-    fillRandomApi(buf.ptr, buf.len);
+    api.fillRandom(buf.ptr, buf.len);
 }
 
 // TODO: .emojis (not sure if I want to do this one)
@@ -29,7 +28,7 @@ fn fillFn(_: *anyopaque, buf: []u8) void {
 // TODO: .qr TEXT/FILE (generate QR code (binary?))
 
 // Must be called before any handling code
-export fn initApi() void {
+export fn init() void {
     acr.init() catch unreachable;
 }
 
