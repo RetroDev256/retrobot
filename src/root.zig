@@ -5,6 +5,7 @@ const io = @import("io.zig");
 const tools = @import("tools.zig");
 const zig_block = @import("zig_block.zig");
 
+pub const bot_id: []const u8 = "814437814111830027";
 pub const prefix: []const u8 = ".";
 pub const gpa = std.heap.wasm_allocator;
 pub const csprng: std.Random = .{ .ptr = undefined, .fillFn = fillFn };
@@ -78,6 +79,7 @@ export fn messageCreate() void {
     const arena = arena_state.allocator();
 
     const event = api.getString() catch |err| return handleError(err, @src());
+    defer gpa.free(event);
     const data = std.json.parseFromSliceLeaky(
         MessageCreateData,
         arena,
@@ -148,6 +150,7 @@ export fn reactionAdd() void {
     const arena = arena_state.allocator();
 
     const event = api.getString() catch |err| return handleError(err, @src());
+    defer gpa.free(event);
     const data = std.json.parseFromSliceLeaky(
         ReactionAddData,
         arena,

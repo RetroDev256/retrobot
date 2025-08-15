@@ -6,11 +6,12 @@ const root = @import("root");
 
 const block_zig = "```zig\n";
 const block_ansi = "```ansi\n";
+const block_ts = "```ts\n";
 const block_end = "```";
 
 const max_blocks = 3;
 
-// Creates up to max_blocks highlighted zig code blocks
+/// Creates up to max_blocks highlighted zig code blocks
 pub fn createZigBlock(data: *const root.MessageCreateData) !void {
     if (data.author_is_bot) return;
     var index: usize = 0;
@@ -24,47 +25,56 @@ pub fn createZigBlock(data: *const root.MessageCreateData) !void {
         // Highlight & reply the block using ANSI
         const zig_code = data.content[block..end.?];
         var buffer: [2000]u8 = undefined;
-        const ansi = try highlightZig(zig_code, &buffer);
+        const ansi = try zigToAnsi(zig_code, &buffer);
         api.replyMessage(data.channel_id, data.message_id, ansi);
     }
 }
 
-// Adds reactions onto highlighted zig code blocks
+/// Adds reactions onto newly created highlighted zig code blocks
 pub fn callbackReactZigBlock(data: *const root.MessageCreateData) !void {
     if (std.mem.startsWith(u8, data.content, block_ansi)) {
-        if (std.mem.eql(u8, data.author_id, "814437814111830027")) {
+        if (std.mem.eql(u8, data.author_id, root.bot_id)) {
             api.reactMessage(data.channel_id, data.message_id, "♻️");
             api.reactMessage(data.channel_id, data.message_id, "🚯");
         }
     }
 }
 
-// Recycling emoji effect on highlighted blocks (zig / ansi)
+/// Recycling emoji effect on highlighted blocks (swaps between zig and ts)
 pub fn recycleEmojiZigBlock(data: *const root.ReactionAddData) !void {
+    if (std.mem.eql(u8, data.user_id, root.bot_id)) return;
     const emoji_name = data.emoji_name orelse return;
     if (!std.mem.eql(u8, emoji_name, "♻️")) return;
 
     const author_id = data.op_author_id orelse return;
-    if (std.mem.eql(u8, author_id, "814437814111830027")) {
+    if (std.mem.eql(u8, author_id, root.bot_id)) {
         const content = data.op_content orelse return;
         if (std.mem.startsWith(u8, content, block_ansi)) {
-            // TODO: convert back to zig (remove ansi)
-            try io.stdout.print("CONVERT BACK TO ZIG.\n", .{});
-            try io.stdout.flush();
-        } else if (std.mem.startsWith(u8, content, block_zig)) {
-            // TODO: convert back to ansi (pass through function)
-            try io.stdout.print("CONVERT BACK TO ANSI.\n", .{});
-            try io.stdout.flush();
+            // Convert the ansi block to typescript
+            const clip_front = content[block_ansi.len..];
+            const block_length = clip_front.len - block_end.len;
+            var buffer: [2000]u8 = undefined;
+            const ts = try ansiToTs(clip_front[0..block_length], &buffer);
+            api.editMessage(data.op_channel_id, data.op_message_id, ts);
+        } else if (std.mem.startsWith(u8, content, block_ts)) {
+            // Convert the typescript block to ansi
+            const clip_front = content[block_ts.len..];
+            const block_length = clip_front.len - block_end.len;
+            var buffer: [2000]u8 = undefined;
+            const ansi = try zigToAnsi(clip_front[0..block_length], &buffer);
+            api.editMessage(data.op_channel_id, data.op_message_id, ansi);
         }
     }
 }
 
+/// Litter emoji effect on highlighted blocks (conditional deletion of block)
 pub fn litterEmojiZigBlock(data: *const root.ReactionAddData) !void {
+    if (std.mem.eql(u8, data.user_id, root.bot_id)) return;
     const emoji_name = data.emoji_name orelse return;
     if (!std.mem.eql(u8, emoji_name, "🚯")) return;
 
     const author_id = data.op_author_id orelse return;
-    if (std.mem.eql(u8, author_id, "814437814111830027")) {
+    if (std.mem.eql(u8, author_id, root.bot_id)) {
         if (data.user_manages_messages) {
             // Delete the message if the user has the required permissions
             api.deleteMessage(data.op_channel_id, data.op_message_id);
@@ -79,137 +89,295 @@ pub fn litterEmojiZigBlock(data: *const root.ReactionAddData) !void {
 }
 
 const Color = enum {
-    white,
     red,
-    yellow,
     green,
-    cyan,
+    yellow,
     blue,
     magenta,
+    cyan,
+    white,
 
     fn code(self: Color) []const u8 {
         return switch (self) {
-            .white => "\x1b[37m",
             .red => "\x1b[31m",
-            .yellow => "\x1b[33m",
             .green => "\x1b[32m",
-            .cyan => "\x1b[36m",
+            .yellow => "\x1b[33m",
             .blue => "\x1b[34m",
             .magenta => "\x1b[35m",
+            .cyan => "\x1b[36m",
+            .white => "\x1b[37m",
         };
     }
 };
 
-fn highlightZig(zig_code: []const u8, buffer: *[2000]u8) ![]const u8 {
-    // TODO
-    _ = zig_code;
-    _ = buffer;
-    return "placeholder message here.";
-    // var writer: std.Io.Writer = .fixed(buffer);
-    // try writer.writeAll("```ansi\n");
+/// Filters out ansi escape sequences "\x1b[31m" to "\x1b[37m",
+/// returning the result as a typescript code block ("```ts\n")
+fn ansiToTs(code: []const u8, buffer: *[2000]u8) ![]const u8 {
+    var writer: std.Io.Writer = .fixed(buffer);
+    try writer.writeAll(block_ts);
 
-    // var last_index: usize = 0;
-    // var current_color: Color = .white;
+    var index: usize = 0;
+    while (std.mem.indexOfScalarPos(u8, code, index, '\x1b')) |next| {
+        try writer.writeAll(code[index..next]);
+        index += next - index;
 
-    // var toker: std.zig.Tokenizer = .init(zig_code);
-    // while (true) {
-    //     const token = toker.next();
-    //     if (token.tag == .eof) break;
-    //     const token_str = zig_code[token.loc.start..token.loc.end];
+        if (next + 4 < code.len and
+            code[next + 1] == '[' and
+            code[next + 2] == '3' and
+            code[next + 3] >= '1' and
+            code[next + 3] <= '7' and
+            code[next + 4] == 'm')
+        {
+            index += 5;
+        } else {
+            try writer.writeByte(code[next]);
+            index += 1;
+        }
+    }
 
-    //     const token_color: Color = switch (token.tag) {
-    //         .identifier,
-    //         => blk: {
-    //             if (tools.isUpper(token_str[0]) or isPrimitive(token_str)) {
-    //                 break :blk .magenta;
-    //             }
-
-    //             if (zig_code[token.loc.end] == '(') {
-    //                 break :blk .cyan;
-    //             }
-
-    //             for (token_str) |byte| {
-    //                 if (tools.isUpper(byte)) {
-    //                     break :blk .cyan;
-    //                 }
-    //             }
-
-    //             break :blk .white;
-    //         },
-    //         .string_literal,
-    //         .multiline_string_literal_line,
-    //         .char_literal,
-    //         .number_literal,
-    //         => .green,
-    //         .builtin,
-    //         => .red,
-    //         .keyword_addrspace,
-    //         .keyword_align,
-    //         .keyword_allowzero,
-    //         .keyword_and,
-    //         .keyword_anyframe,
-    //         .keyword_anytype,
-    //         .keyword_asm,
-    //         .keyword_break,
-    //         .keyword_callconv,
-    //         .keyword_catch,
-    //         .keyword_comptime,
-    //         .keyword_const,
-    //         .keyword_continue,
-    //         .keyword_defer,
-    //         .keyword_else,
-    //         .keyword_enum,
-    //         .keyword_errdefer,
-    //         .keyword_error,
-    //         .keyword_export,
-    //         .keyword_extern,
-    //         .keyword_fn,
-    //         .keyword_for,
-    //         .keyword_if,
-    //         .keyword_inline,
-    //         .keyword_noalias,
-    //         .keyword_noinline,
-    //         .keyword_nosuspend,
-    //         .keyword_opaque,
-    //         .keyword_or,
-    //         .keyword_orelse,
-    //         .keyword_packed,
-    //         .keyword_pub,
-    //         .keyword_resume,
-    //         .keyword_return,
-    //         .keyword_linksection,
-    //         .keyword_struct,
-    //         .keyword_suspend,
-    //         .keyword_switch,
-    //         .keyword_test,
-    //         .keyword_threadlocal,
-    //         .keyword_try,
-    //         .keyword_union,
-    //         .keyword_unreachable,
-    //         .keyword_var,
-    //         .keyword_volatile,
-    //         .keyword_while,
-    //         => .yellow,
-    //         else => .blue,
-    //     };
-
-    //     const leading = zig_code[last_index..token.loc.start];
-    //     try writer.writeAll(leading);
-
-    //     if (token_color != current_color) {
-    //         try writer.writeAll(token_color.code());
-    //         current_color = token_color;
-    //     }
-
-    //     try writer.writeAll(token_str);
-    //     last_index = token.loc.end;
-    // }
-
-    // try writer.writeAll("```");
-    // return writer.buffered();
+    try writer.writeAll(code[index..]);
+    try writer.writeAll(block_end);
+    return writer.buffered();
 }
 
-const primitives = &.{
+// Tokenizer state for parsing zig
+const State = enum { start, string, char, comment, type, identifier, builtin, string_literal, number, other };
+
+/// Parses zig code and formats the result with ansi escape
+/// sequences, attempting to represent the following rules:
+/// 0. types are .magenta
+/// 1. functions are .cyan
+/// 2. identifiers are .white
+/// 3. literals are .green
+/// 4. builtins are .red
+/// 5. keywords are .yellow
+/// 6. comments & otherwise are .blue
+fn zigToAnsi(zig_code: []const u8, buffer: *[2000]u8) ![]const u8 {
+    // This null delimiter simplifies our parser.
+    var delimited_code: [2000]u8 = undefined;
+    @memcpy(&delimited_code, zig_code);
+    delimited_code[zig_code.len] = 0;
+
+    var color: Color = .white;
+    var reader: std.Io.Reader = .fixed(&delimited_code);
+    var writer: std.Io.Writer = .fixed(buffer);
+    try writer.writeAll(block_ansi);
+
+    fsa: switch (@as(State, .start)) {
+        // initial state - no tokens seen yet.
+        .start => switch (try reader.peekByte()) {
+            0 => break :fsa, // we reached eof
+            ' ', '\n', '\t', '\r' => {
+                try writer.writeByte(try reader.takeByte());
+                continue :fsa .start;
+            },
+            '"' => continue :fsa .string,
+            '\'' => continue :fsa .char,
+            '/' => continue :fsa .comment,
+            'A'...'Z' => continue :fsa .type,
+            'a'...'z', '_' => continue :fsa .identifier,
+            '@' => continue :fsa .builtin,
+            '\\' => continue :fsa .string_literal,
+            '0'...'9' => continue :fsa .number,
+            '=', '!', '|', '(', ')', '[', ']', ';' => continue :fsa .other,
+            ',', '?', ':', '%', '*', '+', '<', '>' => continue :fsa .other,
+            '^', '{', '}', '~', '.', '-', '&' => continue :fsa .other,
+            else => {
+                // we don't know what the token is right now
+                _ = try reader.streamDelimiterEnding(&writer, '\n');
+                continue :fsa .start;
+            },
+        },
+        // we've seen the '"' byte, starting a string
+        .string => {
+            // Update the color if it needs to be changed
+            if (color != .green) {
+                color = .green;
+                try writer.writeAll(color.code());
+            }
+
+            try writer.writeByte(try reader.takeByte());
+            while (true) {
+                switch (try reader.peekByte()) {
+                    0 => break :fsa, // we reached eof
+                    '\\' => {
+                        try writer.writeAll(try reader.take(2));
+                    },
+                    '"' => {
+                        try writer.writeByte(try reader.takeByte());
+                        continue :fsa .start;
+                    },
+                    else => {
+                        try writer.writeByte(try reader.takeByte());
+                    },
+                }
+            }
+        },
+        // we've seen the '\'' byte, starting a character
+        .char => {
+            // Update the color if it needs to be changed
+            if (color != .green) {
+                color = .green;
+                try writer.writeAll(color.code());
+            }
+
+            try writer.writeByte(try reader.takeByte());
+            while (true) {
+                switch (try reader.peekByte()) {
+                    0 => break :fsa, // we reached eof
+                    '\\' => {
+                        try writer.writeAll(try reader.take(2));
+                    },
+                    '\'' => {
+                        try writer.writeByte(try reader.takeByte());
+                        continue :fsa .start;
+                    },
+                    else => {
+                        try writer.writeByte(try reader.takeByte());
+                    },
+                }
+            }
+        },
+        // we've seen '/', potentially starting a comment
+        .comment => {
+            // Handling the two cases in which '/' is not a comment:
+            if ((try reader.peek(2))[1] != '/') {
+                try writer.writeByte(try reader.takeByte());
+                continue :fsa .start;
+            }
+
+            // Update the color if it needs to be changed
+            if (color != .blue) {
+                color = .blue;
+                try writer.writeAll(color.code());
+            }
+            _ = try reader.streamDelimiterEnding(&writer, '\n');
+            continue :fsa .start;
+        },
+        // we've seen an uppercase letter, starting a type
+        .type => {
+            // Update the color if it needs to be changed
+            if (color != .magenta) {
+                color = .magenta;
+                try writer.writeAll(color.code());
+            }
+
+            while (true) {
+                switch (try reader.peekByte()) {
+                    0 => break :fsa, // we reached eof
+                    'a'...'z', 'A'...'Z', '_', '0'...'9' => {
+                        try writer.writeByte(try reader.takeByte());
+                    },
+                    else => continue :fsa .start,
+                }
+            }
+        },
+        // we've seen 'a'...'z' or '_', starting an identifier
+        .identifier => {
+            // Find the length of the identifier, and if it is a function
+            var is_function: bool = false;
+            const length: usize = scan: {
+                for (reader.buffered(), 0..) |byte, index| {
+                    switch (byte) {
+                        'a'...'z', '_', '0'...'9' => {},
+                        'A'...'Z' => is_function = true,
+                        '(' => {
+                            is_function = true;
+                            break :scan index;
+                        },
+                        else => break :scan index,
+                    }
+                }
+                break :scan reader.bufferedLen();
+            };
+
+            const identifier = try reader.take(length);
+
+            const new_color: Color = determine: {
+                if (isKeyword(identifier)) break :determine .yellow;
+                if (isPrimitive(identifier)) break :determine .magenta;
+                if (is_function) break :determine .cyan;
+                break :determine .white;
+            };
+
+            // Update the color if it needs to be changed
+            if (color != new_color) {
+                color = new_color;
+                try writer.writeAll(color.code());
+            }
+
+            // Flush the identifier & continue
+            try writer.writeAll(identifier);
+            continue :fsa .start;
+        },
+        // we've seen @, starting a builtin - we don't care about identifiers
+        .builtin => {
+            // Update the color if it needs to be changed
+            if (color != .red) {
+                color = .red;
+                try writer.writeAll(color.code());
+            }
+
+            while (true) {
+                switch (try reader.peekByte()) {
+                    'a'...'z', 'A'...'Z', '_', '0'...'9' => {
+                        try writer.writeByte(try reader.takeByte());
+                    },
+                    else => continue :fsa .start,
+                }
+            }
+        },
+        // we've seen '\\', potentially starting a string literal
+        .string_literal => {
+            // Handling the two cases in which '\' is not a comment:
+            if ((try reader.peek(2))[1] != '\\') {
+                try writer.writeByte(try reader.takeByte());
+                continue :fsa .start;
+            }
+
+            // Update the color if it needs to be changed
+            if (color != .green) {
+                color = .green;
+                try writer.writeAll(color.code());
+            }
+            _ = try reader.streamDelimiterEnding(&writer, '\n');
+            continue :fsa .start;
+        },
+        // we've seen '0'...'9', starting a number
+        .number => {
+            // Update the color if it needs to be changed
+            if (color != .green) {
+                color = .green;
+                try writer.writeAll(color.code());
+            }
+
+            while (true) {
+                switch (try reader.peekByte()) {
+                    '0'...'9', 'A'...'F', 'a'...'f', '.', 'x', 'o', '_' => {
+                        try writer.writeByte(try reader.takeByte());
+                    },
+                    else => continue :fsa .start,
+                }
+            }
+        },
+        // we just need to chew through these other symbols
+        .other => {
+            // Update the color if it needs to be changed
+            if (color != .blue) {
+                color = .blue;
+                try writer.writeAll(color.code());
+            }
+
+            try writer.writeByte(try reader.takeByte());
+            continue :fsa .start;
+        },
+    }
+
+    try writer.writeAll(block_end);
+    return writer.buffered();
+}
+
+const primitives: []const []const u8 = &.{
     "anyerror",    "anyframe", "anyopaque",      "bool",
     "c_int",       "c_long",   "c_longdouble",   "c_longlong",
     "c_char",      "c_short",  "c_uint",         "c_ulong",
@@ -221,7 +389,7 @@ const primitives = &.{
 };
 
 fn isPrimitive(name: []const u8) bool {
-    inline for (primitives) |primitive| {
+    for (primitives) |primitive| {
         if (std.mem.eql(u8, primitive, name)) {
             return true;
         }
@@ -242,4 +410,27 @@ fn isPrimitive(name: []const u8) bool {
     }
 
     return true;
+}
+
+const keywords: []const []const u8 = &.{
+    "addrspace",      "align",    "allowzero", "and",
+    "anytype",        "asm",      "break",     "callconv",
+    "catch",          "comptime", "const",     "continue",
+    "defer",          "else",     "enum",      "errdefer",
+    "error",          "export",   "extern",    "fn",
+    "for",            "if",       "inline",    "noalias",
+    "noinline",       "opaque",   "or",        "orelse",
+    "packed",         "pub",      "resume",    "return",
+    "linksection",    "struct",   "switch",    "test",
+    "threadlocal",    "try",      "union",     "unreachable",
+    "usingnamespace", "var",      "volatile",  "while",
+};
+
+fn isKeyword(name: []const u8) bool {
+    for (keywords) |keyword| {
+        if (std.mem.eql(u8, keyword, name)) {
+            return true;
+        }
+    }
+    return false;
 }
