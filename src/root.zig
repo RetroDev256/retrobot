@@ -54,9 +54,17 @@ export fn init() bool {
 }
 
 export fn messageCreate() void {
-    const data_pull = api.MessageCreate.pull();
-    var data = data_pull catch |err| return handle(err, @src());
-    defer data.deinit();
+    messageCreateInner() catch |err| handle(err, @src());
+}
+
+fn messageCreateInner() !void {
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
+
+    const json = try api.popString();
+    defer gpa.free(json);
+
+    const data: api.Message = try .parse(arena.allocator(), json);
 
     inline for (&.{
         handlePing,
@@ -66,13 +74,11 @@ export fn messageCreate() void {
         acr.handleAcr,
         zig_block.createZigBlock,
         zig_block.callbackReactZigBlock,
-    }) |handler| {
-        handler(&data) catch |err| handle(err, @src());
-    }
+    }) |handler| try handler(&data);
 }
 
 // respond to case-insensitive "ping" with "pong"
-fn handlePing(data: *const api.MessageCreate) !void {
+fn handlePing(data: *const api.Message) !void {
     if (data.author_is_bot) return;
     if (std.mem.eql(u8, "ping", data.content)) {
         api.replyMessage(data.channel_id, data.message_id, "pong");
@@ -80,7 +86,7 @@ fn handlePing(data: *const api.MessageCreate) !void {
 }
 
 // respond to case-insensitive "no u" with "no u"
-fn handleNoU(data: *const api.MessageCreate) !void {
+fn handleNoU(data: *const api.Message) !void {
     if (data.author_is_bot) return;
     if (tools.insensitiveEql("no u", data.content)) {
         api.replyMessage(data.channel_id, data.message_id, "no u");
@@ -88,7 +94,7 @@ fn handleNoU(data: *const api.MessageCreate) !void {
 }
 
 // respond to case-insensitive "rand" command with random u64
-fn handleRand(data: *const api.MessageCreate) !void {
+fn handleRand(data: *const api.Message) !void {
     if (data.author_is_bot) return;
     if (std.mem.startsWith(u8, data.content, prefix ++ "rand")) {
         var buffer: [64]u8 = undefined;
@@ -105,7 +111,7 @@ fn handleRand(data: *const api.MessageCreate) !void {
 }
 
 // respond to "should i..." and "should we..." with random decision
-fn handleShoulds(data: *const api.MessageCreate) !void {
+fn handleShoulds(data: *const api.Message) !void {
     if (data.author_is_bot) return;
     const should_i = tools.startsWithInsensitive("should i", data.content);
     const should_we = tools.startsWithInsensitive("should we", data.content);
@@ -116,16 +122,22 @@ fn handleShoulds(data: *const api.MessageCreate) !void {
 }
 
 export fn reactionAdd() void {
-    const data_pull = api.ReactionAdd.pull();
-    var data = data_pull catch |err| return handle(err, @src());
-    defer data.deinit();
+    reactionAddInner() catch |err| handle(err, @src());
+}
+
+fn reactionAddInner() !void {
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
+
+    const json = try api.popString();
+    defer gpa.free(json);
+
+    const data: api.Reaction = try .parse(arena.allocator(), json);
 
     inline for (&.{
         zig_block.recycleEmojiZigBlock,
         zig_block.litterEmojiZigBlock,
-    }) |handler| {
-        handler(&data) catch |err| handle(err, @src());
-    }
+    }) |handler| try handler(&data);
 }
 
 comptime {

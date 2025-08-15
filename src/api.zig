@@ -1,4 +1,5 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 
 const gpa: std.mem.Allocator = @import("root").gpa;
@@ -191,8 +192,8 @@ pub const Message = struct {
     content: []const u8,
     author_is_bot: bool,
 
-    pub fn parse(arena: *std.heap.ArenaAllocator, json: []const u8) !@This() {
-        const opts = .{ .allocate = .alloc_always };
+    pub fn parse(arena: Allocator, json: []const u8) !@This() {
+        const opts: std.json.ParseOptions = .{ .allocate = .alloc_always };
         return try std.json.parseFromSliceLeaky(@This(), arena, json, opts);
     }
 };
@@ -215,8 +216,8 @@ pub const Reaction = struct {
     user_id: []const u8,
     emoji_name: ?[]const u8,
 
-    pub fn parse(arena: *std.heap.ArenaAllocator, json: []const u8) !@This() {
-        const opts = .{ .allocate = .alloc_always };
+    pub fn parse(arena: Allocator, json: []const u8) !@This() {
+        const opts: std.json.ParseOptions = .{ .allocate = .alloc_always };
         return try std.json.parseFromSliceLeaky(@This(), arena, json, opts);
     }
 };
@@ -234,8 +235,8 @@ pub fn popPermissions() !Reaction {
 pub const Permissions = struct {
     manages_messages: bool,
 
-    pub fn parse(arena: *std.heap.ArenaAllocator, json: []const u8) !@This() {
-        const opts = .{ .allocate = .alloc_always };
+    pub fn parse(arena: Allocator, json: []const u8) !@This() {
+        const opts: std.json.ParseOptions = .{ .allocate = .alloc_always };
         return try std.json.parseFromSliceLeaky(@This(), arena, json, opts);
     }
 };
@@ -243,8 +244,8 @@ pub const Permissions = struct {
 pub const FetchReference = struct {
     message: ?Message,
 
-    pub fn parse(arena: *std.heap.ArenaAllocator, json: []const u8) !@This() {
-        const opts = .{ .allocate = .alloc_always };
+    pub fn parse(arena: Allocator, json: []const u8) !@This() {
+        const opts: std.json.ParseOptions = .{ .allocate = .alloc_always };
         return try std.json.parseFromSliceLeaky(@This(), arena, json, opts);
     }
 };
@@ -252,8 +253,8 @@ pub const FetchReference = struct {
 pub const FetchPermission = struct {
     permissions: ?Permissions,
 
-    pub fn parse(arena: *std.heap.ArenaAllocator, json: []const u8) !@This() {
-        const opts = .{ .allocate = .alloc_always };
+    pub fn parse(arena: Allocator, json: []const u8) !@This() {
+        const opts: std.json.ParseOptions = .{ .allocate = .alloc_always };
         return try std.json.parseFromSliceLeaky(@This(), arena, json, opts);
     }
 };

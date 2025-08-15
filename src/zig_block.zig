@@ -12,7 +12,7 @@ const block_end = "```";
 const max_blocks = 3;
 
 /// Creates up to max_blocks highlighted zig code blocks
-pub fn createZigBlock(data: *const api.MessageCreate) !void {
+pub fn createZigBlock(data: *const api.Message) !void {
     if (data.author_is_bot) return;
     var index: usize = 0;
     for (0..max_blocks) |_| {
@@ -31,7 +31,7 @@ pub fn createZigBlock(data: *const api.MessageCreate) !void {
 }
 
 /// Adds reactions onto newly created highlighted zig code blocks
-pub fn callbackReactZigBlock(data: *const api.MessageCreate) !void {
+pub fn callbackReactZigBlock(data: *const api.Message) !void {
     if (std.mem.startsWith(u8, data.content, block_ansi)) {
         if (std.mem.eql(u8, data.author_id, root.bot_id)) {
             api.reactMessage(data.channel_id, data.message_id, "♻️");
@@ -41,7 +41,7 @@ pub fn callbackReactZigBlock(data: *const api.MessageCreate) !void {
 }
 
 /// Recycling emoji effect on highlighted blocks (swaps between zig and ts)
-pub fn recycleEmojiZigBlock(data: *const api.ReactionAdd) !void {
+pub fn recycleEmojiZigBlock(data: *const api.Reaction) !void {
     if (std.mem.eql(u8, data.user_id, root.bot_id)) return;
     const emoji_name = data.emoji_name orelse return;
     if (!std.mem.eql(u8, emoji_name, "♻️")) return;
@@ -66,25 +66,23 @@ pub fn recycleEmojiZigBlock(data: *const api.ReactionAdd) !void {
 }
 
 /// Litter emoji effect on highlighted blocks (conditional deletion of block)
-pub fn litterEmojiZigBlock(data: *const api.ReactionAdd) !void {
-    _ = data; // TODO
-    // if (std.mem.eql(u8, data.user_id, root.bot_id)) return;
-    // const emoji_name = data.emoji_name orelse return;
-    // if (!std.mem.eql(u8, emoji_name, "🚯")) return;
+pub fn litterEmojiZigBlock(data: *const api.Reaction) !void {
+    if (std.mem.eql(u8, data.user_id, root.bot_id)) return;
+    const emoji_name = data.emoji_name orelse return;
+    if (!std.mem.eql(u8, emoji_name, "🚯")) return;
 
-    // const author_id = data.op_author_id orelse return;
-    // if (std.mem.eql(u8, author_id, root.bot_id)) {
-    //     if (data.user_manages_messages) {
-    //         // Delete the message if the user has the required permissions
-    //         api.deleteMessage(data.op_channel_id, data.op_message_id);
-    //     } else {
-    //         // Delete the message if the original poster requests deletion
-    //         const original_author_id = data.op_reply_author_id orelse return;
-    //         if (std.mem.eql(u8, data.user_id, original_author_id)) {
-    //             api.deleteMessage(data.op_channel_id, data.op_message_id);
-    //         }
-    //     }
-    // }
+    if (std.mem.eql(u8, data.op_author_id, root.bot_id)) {
+        // if (data.user_manages_messages) {
+        //     // Delete the message if the user has the required permissions
+        //     api.deleteMessage(data.op_channel_id, data.op_message_id);
+        // } else {
+        //     // Delete the message if the original poster requests deletion
+        //     const original_author_id = data.op_reply_author_id orelse return;
+        //     if (std.mem.eql(u8, data.user_id, original_author_id)) {
+        //         api.deleteMessage(data.op_channel_id, data.op_message_id);
+        //     }
+        // }
+    }
 }
 
 const Color = enum {
