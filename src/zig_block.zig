@@ -3,25 +3,26 @@ const api = @import("api.zig");
 const tools = @import("tools.zig");
 const root = @import("root");
 
-pub fn handleZigBlock(data: *const root.MessageCreateData) !void {
-    var last_idx: usize = 0;
-    while (std.mem.indexOfPos(u8, data.content, last_idx, "```zig\n")) |start_idx| {
-        if (std.mem.indexOfPos(u8, data.content, start_idx + 7, "```")) |end_idx| {
-            const zig_code = data.content[start_idx + 7 .. end_idx];
-            if (zig_code.len > 0 and zig_code.len < 2000) {
-                // The Zig tokenizer expects 0-delimited memory
-                var delimit_buffer: [2000]u8 = undefined;
-                @memcpy(delimit_buffer[0..zig_code.len], zig_code);
-                delimit_buffer[zig_code.len] = 0;
-                const delimited = delimit_buffer[0..zig_code.len :0];
+const block_zig = "```zig\n";
+const block_ansi = "```ansi\n";
+const block_end = "```";
 
-                var block_buffer: [2000]u8 = undefined;
-                if (colorAnsiZig(delimited, &block_buffer)) |reply| {
-                    api.replyMessage(data.channel_id, data.id, reply);
-                } else |_| {}
-            }
-            last_idx = end_idx + 3;
-        } else break;
+const max_blocks = 3;
+
+pub fn handleZigBlock(data: *const root.MessageCreateData) !void {
+    var index: usize = 0;
+    for (0..max_blocks) |_| {
+        // Locate the next zig block and advance our index
+        const tag = std.mem.indexOfPos(u8, data.content, index, block_zig);
+        const block = (tag orelse break) + block_zig.len;
+        const end = std.mem.indexOfPos(u8, data.content, block, block_end);
+        index = (end orelse break) + block_end.len;
+
+        // Highlight & reply the block using ANSI
+        const zig_code = data.content[block..end];
+        var buffer: [2000]u8 = undefined;
+        const ansi = try highlightZig(zig_code, &buffer);
+        api.replyMessage(data.channel_id, data.id, ansi);
     }
 }
 
@@ -47,12 +48,12 @@ const Color = enum {
     }
 };
 
-fn colorAnsiZig(zig_code: [:0]const u8, buffer: *[2000]u8) ![]const u8 {
+fn highlightZig(zig_code: [:0]const u8, buffer: *[2000]u8) ![]const u8 {
     var writer: std.Io.Writer = .fixed(buffer);
     try writer.writeAll("```ansi\n");
 
     var last_index: usize = 0;
-    var current_color: Color = .blue;
+    var current_color: Color = .white;
 
     var toker: std.zig.Tokenizer = .init(zig_code);
     while (true) {

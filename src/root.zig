@@ -33,43 +33,59 @@ export fn init() void {
 }
 
 const GatewayPayload = struct {
-    t: ?[]const u8 = null,
     d: std.json.Value,
+    t: ?[]const u8,
     // Some fields omitted
 };
 
 const Author = struct {
-    id: []const u8,
     username: []const u8,
-    bot: ?bool = null,
+    id: []const u8,
+    bot: ?bool,
     // Some fields omitted
 };
 
 const ReferencedMessage = struct {
-    id: []const u8,
     channel_id: []const u8,
     content: []const u8,
+    id: []const u8,
     author: Author,
     // Some fields omitted
 };
 
 const MessageReference = struct {
-    message_id: ?[]const u8 = null,
-    channel_id: ?[]const u8 = null,
-    guild_id: ?[]const u8 = null,
+    message_id: ?[]const u8,
+    channel_id: ?[]const u8,
+    guild_id: ?[]const u8,
     // Some fields omitted
 };
 
 pub const MessageCreateData = struct {
-    id: []const u8,
-    channel_id: []const u8,
-    guild_id: ?[]const u8 = null,
-    author: Author,
-    content: []const u8,
+    referenced_message: ?ReferencedMessage,
+    message_reference: ?MessageReference,
     mention_everyone: bool,
+    channel_id: []const u8,
+    guild_id: ?[]const u8,
+    content: []const u8,
     mentions: []Author,
-    referenced_message: ?ReferencedMessage = null,
-    message_reference: ?MessageReference = null,
+    id: []const u8,
+    author: Author,
+    // Some fields omitted
+};
+
+const Emoji = struct {
+    name: []const u8,
+    id: ?[]const u8,
+    // Some fields omitted
+};
+
+pub const MessageReactionAddData = struct {
+    message_author_id: ?[]const u8,
+    channel_id: []const u8,
+    message_id: []const u8,
+    guild_id: ?[]const u8,
+    user_id: []const u8,
+    emoji: Emoji,
     // Some fields omitted
 };
 
@@ -115,11 +131,25 @@ export fn handleEvent() void {
         ) catch |err| return handleError(err);
     }
 
-    // io.stdout.print("EVENT: {s}\n\n", .{event}) catch {};
-    // io.stdout.flush() catch {};
+    // Handle emoji reaction add events with handleEmojiReactionAdd
+    if (std.mem.eql(u8, "MESSAGE_REACTION_ADD", event_type)) {
+        handleEmojiReactionAdd(
+            &(std.json.parseFromValueLeaky(
+                MessageReactionAddData,
+                arena,
+                gateway_payload.d,
+                .{ .ignore_unknown_fields = true },
+            ) catch |err| return handleError(err)),
+        ) catch |err| return handleError(err);
+    }
+
+    io.stdout.print("EVENT: {s}\n\n", .{event}) catch {};
+    io.stdout.flush() catch {};
 }
 
 fn handleMessageCreate(data: *const MessageCreateData) !void {
+    if (data.author.bot == true) return;
+
     inline for (&.{
         handlePing,
         handleNoU,
@@ -142,7 +172,7 @@ fn handlePing(data: *const MessageCreateData) !void {
 // respond to case-insensitive "no u" with "no u"
 fn handleNoU(data: *const MessageCreateData) !void {
     if (tools.insensitiveEql("no u", data.content)) {
-        api.replyMessage(data.channel_id, data.id, "no");
+        api.replyMessage(data.channel_id, data.id, "no u");
     }
 }
 
@@ -170,6 +200,10 @@ fn handleShoulds(data: *const MessageCreateData) !void {
         const reply = if (csprng.boolean()) "yes" else "no";
         api.replyMessage(data.channel_id, data.id, reply);
     }
+}
+
+fn handleEmojiReactionAdd(data: *const MessageReactionAddData) !void {
+    _ = data;
 }
 
 comptime {

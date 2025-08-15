@@ -33,5 +33,4 @@ pub var stdout: Writer = .{
     },
 };
 
-/// Output is invalidated when allocateMem is called
 pub const readFile = api.readFile;
