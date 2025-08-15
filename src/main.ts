@@ -15,7 +15,7 @@ function readString(ptr: number, len: number): string {
 }
 
 // For setting string parameters in TypeScript
-function setString(str: string): void {
+function pushString(str: string): void {
     const utf_8 = new TextEncoder().encode(str);
     const ptr = allocateMem(utf_8.length);
     if (ptr === 0) throw new Error("Out of memory");
@@ -28,7 +28,7 @@ const wasm_env = {
     readFileApi: (path_ptr: number, path_len: number): boolean => {
         try {
             const path = readString(path_ptr, path_len);
-            setString(fs.readFileSync(path, "utf8"));
+            pushString(fs.readFileSync(path, "utf8"));
             return true;
         } catch (err) {
             console.log("TypeScript Error: " + String(err));
@@ -154,6 +154,7 @@ const exports = instance.exports;
 const allocateMem = exports["allocateMem"] as (len: number) => number;
 const messageCreate = exports["messageCreate"] as () => void;
 const reactionAdd = exports["reactionAdd"] as () => void;
+const init = exports["init"] as () => boolean;
 
 client.once("ready", (client) => {
     console.log("Logged in as", client.user?.tag);
@@ -170,9 +171,8 @@ client.on("guildMemberAdd", async (member) => {
 
 client.on("messageCreate", (message) => {
     try {
-        setString(
+        pushString(
             JSON.stringify({
-                guild_id: message.guildId, // ?[]const u8
                 channel_id: message.channelId, // []const u8
                 message_id: message.id, // []const u8
                 author_id: message.author.id, // []const u8
@@ -188,44 +188,15 @@ client.on("messageCreate", (message) => {
 
 client.on("messageReactionAdd", async (reaction, user) => {
     try {
-        const message = (await reaction.fetch()).message;
-
-        let op_reply_author_id: string | null = null;
-        if (message.reference !== null) {
-            try {
-                const replied_to_message = message.fetchReference();
-                op_reply_author_id = (await replied_to_message).author.id;
-            } catch {
-                console.log("TypeScript Warning: could not fetch message");
-            }
-        }
-
-        let user_manages_messages: boolean = false;
-        if ("guild" in message.channel && message.guild) {
-            try {
-                const member = await message.guild.members.fetch(user.id);
-                const permissions = member.permissionsIn(message.channel);
-                user_manages_messages = permissions.has("ManageMessages");
-            } catch {
-                console.log("TypeScript Warning: could not fetch permissions");
-            }
-        }
-
-        setString(
+        pushString(
             JSON.stringify({
-                op_reply_author_id: op_reply_author_id, // ?[]const u8
-                op_guild_id: message.guildId, // ?[]const u8
-                op_channel_id: message.channelId, // []const u8
-                op_message_id: message.id, // []const u8
-                op_author_id: message.author?.id, // ?[]const u8
-                op_content: message.content, // ?[]const u8
-                op_is_bot: message.author?.bot, // ?bool
-
+                op_channel_id: reaction.message.channelId, // []const u8
+                op_message_id: reaction.message.id, // []const u8
+                op_partial: reaction.message.partial, // bool
+                op_author_id: reaction.message.author?.id, // ?[]const u8
+                op_content: reaction.message.content, // ?[]const u8
                 user_id: user.id, // []const u8
-                user_is_bot: user.bot, // bool
-                user_manages_messages: user_manages_messages, // bool
                 emoji_name: reaction.emoji.name, // ?[]const u8
-                emoji_id: reaction.emoji.id, // ?[]const u8
             })
         );
         reactionAdd();
@@ -234,5 +205,5 @@ client.on("messageReactionAdd", async (reaction, user) => {
     }
 });
 
-(exports["init"] as () => void)();
+if (!init()) throw new Error("Failed to initialize WASM");
 client.login(process.env["DISCORD_TOKEN"]);

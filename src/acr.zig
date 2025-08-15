@@ -3,41 +3,40 @@ const api = @import("api.zig");
 const io = @import("io.zig");
 const tools = @import("tools.zig");
 const root = @import("root");
-const prefix = root.prefix;
-const gpa: std.mem.Allocator = root.gpa;
 
 var words: [26][]const []const u8 = undefined;
 
 pub fn init() !void {
     // content has a static lifetime - never freed
     const content = try io.readFile("words.txt");
+    errdefer root.gpa.free(content);
     words = try splitList(content);
 }
 
 fn splitList(text: []const u8) ![26][]const []const u8 {
     var letter_lists: [26]std.ArrayListUnmanaged([]const u8) = @splat(.empty);
-    defer for (&letter_lists) |*list| list.deinit(gpa);
+    defer for (&letter_lists) |*list| list.deinit(root.gpa);
 
     var toker = std.mem.tokenizeScalar(u8, text, '\n');
     while (toker.next()) |word| {
         const letter = tools.toLower(word[0]) - 'a';
-        try letter_lists[letter].append(gpa, word);
+        try letter_lists[letter].append(root.gpa, word);
     }
 
     var owned: usize = 0;
     var lists: [26][]const []const u8 = undefined;
-    errdefer for (lists[0..owned]) |list| gpa.free(list);
+    errdefer for (lists[0..owned]) |list| root.gpa.free(list);
     for (&letter_lists, &lists) |*src, *dest| {
-        dest.* = try src.toOwnedSlice(gpa);
+        dest.* = try src.toOwnedSlice(root.gpa);
         owned += 1;
     }
 
     return lists;
 }
 
-pub fn handleAcr(data: *const root.MessageCreateData) !void {
+pub fn handleAcr(data: *const api.MessageCreate) !void {
     if (data.author_is_bot) return;
-    const command = prefix ++ "acr ";
+    const command = root.prefix ++ "acr ";
     if (!std.mem.startsWith(u8, data.content, command)) return;
 
     const acronym = data.content[command.len..];

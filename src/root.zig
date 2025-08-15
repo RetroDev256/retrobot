@@ -12,9 +12,21 @@ pub const csprng: std.Random = .{ .ptr = undefined, .fillFn = fillFn };
 
 fn fillFn(_: *anyopaque, buf: []u8) void {
     api.fillRandom(buf) catch |err| {
-        handleError(err, @src());
+        handle(err, @src());
         @trap();
     };
+}
+
+fn handle(err: anytype, src: std.builtin.SourceLocation) void {
+    switch (err) {
+        inline else => |known| {
+            io.stdout.print(
+                "Zig Error: {t} in {s} at {}:{}\n",
+                .{ known, src.file, src.line, src.column },
+            ) catch {};
+            io.stdout.flush() catch {};
+        },
+    }
 }
 
 // TODO: .emojis (not sure if I want to do this one)
@@ -32,60 +44,18 @@ fn fillFn(_: *anyopaque, buf: []u8) void {
 // TODO: .qr TEXT/FILE (generate QR code (binary?))
 
 // Must be called before any handling code
-export fn init() void {
-    acr.init() catch unreachable;
-}
-
-pub const MessageCreateData = struct {
-    guild_id: ?[]const u8,
-    channel_id: []const u8,
-    message_id: []const u8,
-    author_id: []const u8,
-    content: []const u8,
-    author_is_bot: bool,
-};
-
-pub const ReactionAddData = struct {
-    op_reply_author_id: ?[]const u8,
-    op_guild_id: ?[]const u8,
-    op_channel_id: []const u8,
-    op_message_id: []const u8,
-    op_author_id: ?[]const u8,
-    op_content: ?[]const u8,
-    op_is_bot: ?bool,
-
-    user_id: []const u8,
-    user_is_bot: bool,
-    user_manages_messages: bool,
-    emoji_name: ?[]const u8,
-    emoji_id: ?[]const u8,
-};
-
-fn handleError(err: anytype, src: std.builtin.SourceLocation) void {
-    switch (err) {
-        inline else => |known| {
-            io.stdout.print(
-                "Zig Error: {t} in {s} at {}:{}\n",
-                .{ known, src.file, src.line, src.column },
-            ) catch {};
-            io.stdout.flush() catch {};
-        },
+export fn init() bool {
+    if (acr.init()) {
+        return true;
+    } else |_| {
+        return false;
     }
 }
 
 export fn messageCreate() void {
-    var arena_state: std.heap.ArenaAllocator = .init(gpa);
-    defer arena_state.deinit();
-    const arena = arena_state.allocator();
-
-    const event = api.getString() catch |err| return handleError(err, @src());
-    defer gpa.free(event);
-    const data = std.json.parseFromSliceLeaky(
-        MessageCreateData,
-        arena,
-        event,
-        .{},
-    ) catch |err| return handleError(err, @src());
+    const data_pull = api.MessageCreate.pull();
+    var data = data_pull catch |err| return handle(err, @src());
+    defer data.deinit();
 
     inline for (&.{
         handlePing,
@@ -96,12 +66,12 @@ export fn messageCreate() void {
         zig_block.createZigBlock,
         zig_block.callbackReactZigBlock,
     }) |handler| {
-        handler(&data) catch |err| handleError(err, @src());
+        handler(&data) catch |err| handle(err, @src());
     }
 }
 
 // respond to case-insensitive "ping" with "pong"
-fn handlePing(data: *const MessageCreateData) !void {
+fn handlePing(data: *const api.MessageCreate) !void {
     if (data.author_is_bot) return;
     if (std.mem.eql(u8, "ping", data.content)) {
         api.replyMessage(data.channel_id, data.message_id, "pong");
@@ -109,7 +79,7 @@ fn handlePing(data: *const MessageCreateData) !void {
 }
 
 // respond to case-insensitive "no u" with "no u"
-fn handleNoU(data: *const MessageCreateData) !void {
+fn handleNoU(data: *const api.MessageCreate) !void {
     if (data.author_is_bot) return;
     if (tools.insensitiveEql("no u", data.content)) {
         api.replyMessage(data.channel_id, data.message_id, "no u");
@@ -117,7 +87,7 @@ fn handleNoU(data: *const MessageCreateData) !void {
 }
 
 // respond to case-insensitive "rand" command with random u64
-fn handleRand(data: *const MessageCreateData) !void {
+fn handleRand(data: *const api.MessageCreate) !void {
     if (data.author_is_bot) return;
     if (std.mem.startsWith(u8, data.content, prefix ++ "rand")) {
         var buffer: [64]u8 = undefined;
@@ -134,7 +104,7 @@ fn handleRand(data: *const MessageCreateData) !void {
 }
 
 // respond to "should i..." and "should we..." with random decision
-fn handleShoulds(data: *const MessageCreateData) !void {
+fn handleShoulds(data: *const api.MessageCreate) !void {
     if (data.author_is_bot) return;
     const should_i = tools.startsWithInsensitive("should i", data.content);
     const should_we = tools.startsWithInsensitive("should we", data.content);
@@ -145,24 +115,15 @@ fn handleShoulds(data: *const MessageCreateData) !void {
 }
 
 export fn reactionAdd() void {
-    var arena_state: std.heap.ArenaAllocator = .init(gpa);
-    defer arena_state.deinit();
-    const arena = arena_state.allocator();
-
-    const event = api.getString() catch |err| return handleError(err, @src());
-    defer gpa.free(event);
-    const data = std.json.parseFromSliceLeaky(
-        ReactionAddData,
-        arena,
-        event,
-        .{},
-    ) catch |err| return handleError(err, @src());
+    const data_pull = api.ReactionAdd.pull();
+    var data = data_pull catch |err| return handle(err, @src());
+    defer data.deinit();
 
     inline for (&.{
         zig_block.recycleEmojiZigBlock,
         zig_block.litterEmojiZigBlock,
     }) |handler| {
-        handler(&data) catch |err| handleError(err, @src());
+        handler(&data) catch |err| handle(err, @src());
     }
 }
 
@@ -171,4 +132,5 @@ comptime {
     _ = api;
     _ = io;
     _ = tools;
+    _ = zig_block;
 }

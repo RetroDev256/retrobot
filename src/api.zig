@@ -6,7 +6,7 @@ const gpa: std.mem.Allocator = @import("root").gpa;
 extern fn readFileApi(path_ptr: [*]const u8, path_len: usize) bool;
 pub fn readFile(path: []const u8) ![]const u8 {
     if (!readFileApi(path.ptr, path.len)) return error.TypeScriptError;
-    return try getString();
+    return try popString();
 }
 
 extern fn writeStdoutApi(out_ptr: [*]const u8, out_len: usize) bool;
@@ -110,17 +110,109 @@ pub fn reactMessage(
     );
 }
 
-var bytes: std.ArrayList(u8) = .empty;
+var stack: std.ArrayList([]const u8) = .empty;
 
 /// For setting string parameters from TypeScript
 export fn allocateMem(len: usize) ?[*]u8 {
-    if (bytes.ensureTotalCapacity(gpa, len)) {
-        bytes.items.len = len;
-        return bytes.items.ptr;
-    } else |_| return null;
+    stack.ensureUnusedCapacity(gpa, 1) catch return null;
+    const str = gpa.alloc(u8, len) catch return null;
+    stack.appendAssumeCapacity(str);
+    return str.ptr;
+}
+
+/// For injecting callback parameters in Zig
+pub fn pushString(str: []const u8) !void {
+    try stack.append(gpa, str);
 }
 
 /// For accessing string parameters in Zig
-pub fn getString() ![]const u8 {
-    return try bytes.toOwnedSlice(gpa);
+pub fn popString() ![]const u8 {
+    if (stack.pop()) |str| return str;
+    return error.UnexpectedEmptyStack;
 }
+
+pub const MessageCreate = struct {
+    arena: std.heap.ArenaAllocator,
+
+    channel_id: []const u8,
+    message_id: []const u8,
+    author_id: []const u8,
+    content: []const u8,
+    author_is_bot: bool,
+
+    // Get the expected data TypeScript passed us
+    pub fn pull() !@This() {
+        var arena_state: std.heap.ArenaAllocator = .init(gpa);
+        const arena = arena_state.allocator();
+
+        const json = try popString();
+        defer gpa.free(json);
+        const data = try std.json.parseFromSliceLeaky(struct {
+            channel_id: []const u8,
+            message_id: []const u8,
+            author_id: []const u8,
+            content: []const u8,
+            author_is_bot: bool,
+        }, arena, json, .{ .allocate = .alloc_always });
+
+        return .{
+            .arena = arena_state,
+            .channel_id = data.channel_id,
+            .message_id = data.message_id,
+            .author_id = data.author_id,
+            .content = data.content,
+            .author_is_bot = data.author_is_bot,
+        };
+    }
+
+    pub fn deinit(self: *@This()) void {
+        defer self.* = undefined;
+        self.arena.deinit();
+    }
+};
+
+pub const ReactionAdd = struct {
+    arena: std.heap.ArenaAllocator,
+
+    op_channel_id: []const u8,
+    op_message_id: []const u8,
+    op_partial: bool,
+    op_author_id: ?[]const u8,
+    op_content: ?[]const u8,
+    user_id: []const u8,
+    emoji_name: ?[]const u8,
+
+    // Get the expected data TypeScript passed us
+    pub fn pull() !@This() {
+        var arena_state: std.heap.ArenaAllocator = .init(gpa);
+        const arena = arena_state.allocator();
+
+        const json = try popString();
+        defer gpa.free(json);
+        const data = try std.json.parseFromSliceLeaky(struct {
+            op_channel_id: []const u8,
+            op_message_id: []const u8,
+            op_partial: bool,
+            op_author_id: ?[]const u8,
+            op_content: ?[]const u8,
+            user_id: []const u8,
+            emoji_name: ?[]const u8,
+        }, arena, json, .{ .allocate = .alloc_always });
+
+        return .{
+            .arena = arena_state,
+            .op_channel_id = data.op_channel_id,
+            .op_message_id = data.op_message_id,
+            .op_partial = data.op_partial,
+            .op_author_id = data.op_author_id,
+            .op_content = data.op_content,
+            .user_id = data.user_id,
+            .emoji_name = data.emoji_name,
+        };
+    }
+
+    pub fn deinit(self: *@This()) void {
+        defer self.* = undefined;
+        self.arena.deinit();
+    }
+};
