@@ -152,11 +152,73 @@ const instance = new WebAssembly.Instance(module, { env: wasm_env });
 const exports = instance.exports;
 
 const allocateMem = exports["allocateMem"] as (len: number) => number;
-const handleEvent = exports["handleEvent"] as () => void;
+const messageCreate = exports["messageCreate"] as () => void;
+const reactionAdd = exports["reactionAdd"] as () => void;
 
-client.on("raw", (packet) => {
-    setString(JSON.stringify(packet));
-    handleEvent();
+client.on("messageCreate", (message) => {
+    try {
+        setString(
+            JSON.stringify({
+                guild_id: message.guildId, // ?[]const u8
+                channel_id: message.channelId, // []const u8
+                message_id: message.id, // []const u8
+                author_id: message.author.id, // []const u8
+                content: message.content, // []const u8
+                author_is_bot: message.author.bot, // bool
+            })
+        );
+        messageCreate();
+    } catch (err) {
+        console.log("TypeScript Error: " + String(err));
+    }
+});
+
+client.on("messageReactionAdd", async (reaction, user) => {
+    try {
+        const message = (await reaction.fetch()).message;
+
+        let op_reply_author_id: string | null = null;
+        if (message.reference !== null) {
+            try {
+                const replied_to_message = message.fetchReference();
+                op_reply_author_id = (await replied_to_message).author.id;
+            } catch {
+                console.log("TypeScript Warning: could not fetch message");
+            }
+        }
+
+        let user_manages_messages: boolean = false;
+        if ("guild" in message.channel && message.guild) {
+            try {
+                const member = await message.guild.members.fetch(user.id);
+                const permissions = member.permissionsIn(message.channel);
+                user_manages_messages = permissions.has("ManageMessages");
+            } catch {
+                console.log("TypeScript Warning: could not fetch permissions");
+            }
+        }
+
+        setString(
+            JSON.stringify({
+                op_reply_author_id: op_reply_author_id, // ?[]const u8
+                op_guild_id: message.guildId, // ?[]const u8
+                op_channel_id: message.channelId, // []const u8
+                op_message_id: message.id, // []const u8
+                op_author_id: message.author?.id, // ?[]const u8
+                op_content: message.content, // ?[]const u8
+                op_is_bot: message.author?.bot, // ?bool
+
+                user_id: user.id, // []const u8
+                user_is_bot: user.bot, // bool
+                user_manages_messages: user_manages_messages, // bool
+                emoji_name: reaction.emoji.name, // ?[]const u8
+                emoji_id: reaction.emoji.id, // ?[]const u8
+            })
+        );
+        reactionAdd();
+    } catch (err) {
+        console.log("TypeScript Error: " + String(err));
+    }
 });
 
 (exports["init"] as () => void)();

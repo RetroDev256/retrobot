@@ -13,17 +13,18 @@ pub var stdout: Writer = .{
                 splat: usize,
             ) Writer.Error!usize {
                 var written: usize = w.end;
-                api.writeStdout(w.buffer[0..w.end]);
+                const buffered = w.buffer[0..w.end];
+                api.writeStdout(buffered) catch return error.WriteFailed;
                 w.end = 0;
 
                 for (data[0 .. data.len - 1]) |bytes| {
-                    api.writeStdout(bytes);
+                    api.writeStdout(bytes) catch return error.WriteFailed;
                     written += bytes.len;
                 }
 
                 const pattern = data[data.len - 1];
                 for (0..splat) |_| {
-                    api.writeStdout(pattern);
+                    api.writeStdout(pattern) catch return error.WriteFailed;
                 }
                 written += pattern.len * splat;
 

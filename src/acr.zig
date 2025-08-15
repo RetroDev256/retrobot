@@ -9,10 +9,9 @@ const gpa: std.mem.Allocator = root.gpa;
 var words: [26][]const []const u8 = undefined;
 
 pub fn init() !void {
-    const content = io.readFile("words.txt");
-    const content_owned = try gpa.dupe(u8, content);
-    errdefer gpa.free(content_owned);
-    words = try splitList(content_owned);
+    // content has a static lifetime - never freed
+    const content = try io.readFile("words.txt");
+    words = try splitList(content);
 }
 
 fn splitList(text: []const u8) ![26][]const []const u8 {
@@ -37,6 +36,7 @@ fn splitList(text: []const u8) ![26][]const []const u8 {
 }
 
 pub fn handleAcr(data: *const root.MessageCreateData) !void {
+    if (data.author_is_bot) return;
     const command = prefix ++ "acr ";
     if (!std.mem.startsWith(u8, data.content, command)) return;
 
@@ -61,6 +61,6 @@ pub fn handleAcr(data: *const root.MessageCreateData) !void {
 
     if (msg_length != 0) {
         const reply = msg_buffer[0..msg_length];
-        api.replyMessage(data.channel_id, data.id, reply);
+        api.replyMessage(data.channel_id, data.message_id, reply);
     }
 }

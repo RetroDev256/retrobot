@@ -1,4 +1,5 @@
 const std = @import("std");
+const io = @import("io.zig");
 const api = @import("api.zig");
 const tools = @import("tools.zig");
 const root = @import("root");
@@ -9,7 +10,9 @@ const block_end = "```";
 
 const max_blocks = 3;
 
-pub fn handleZigBlock(data: *const root.MessageCreateData) !void {
+// Creates up to max_blocks highlighted zig code blocks
+pub fn createZigBlock(data: *const root.MessageCreateData) !void {
+    if (data.author_is_bot) return;
     var index: usize = 0;
     for (0..max_blocks) |_| {
         // Locate the next zig block and advance our index
@@ -19,10 +22,59 @@ pub fn handleZigBlock(data: *const root.MessageCreateData) !void {
         index = (end orelse break) + block_end.len;
 
         // Highlight & reply the block using ANSI
-        const zig_code = data.content[block..end];
+        const zig_code = data.content[block..end.?];
         var buffer: [2000]u8 = undefined;
         const ansi = try highlightZig(zig_code, &buffer);
-        api.replyMessage(data.channel_id, data.id, ansi);
+        api.replyMessage(data.channel_id, data.message_id, ansi);
+    }
+}
+
+// Adds reactions onto highlighted zig code blocks
+pub fn callbackReactZigBlock(data: *const root.MessageCreateData) !void {
+    if (std.mem.startsWith(u8, data.content, block_ansi)) {
+        if (std.mem.eql(u8, data.author_id, "814437814111830027")) {
+            api.reactMessage(data.channel_id, data.message_id, "♻️");
+            api.reactMessage(data.channel_id, data.message_id, "🚯");
+        }
+    }
+}
+
+// Recycling emoji effect on highlighted blocks (zig / ansi)
+pub fn recycleEmojiZigBlock(data: *const root.ReactionAddData) !void {
+    const emoji_name = data.emoji_name orelse return;
+    if (!std.mem.eql(u8, emoji_name, "♻️")) return;
+
+    const author_id = data.op_author_id orelse return;
+    if (std.mem.eql(u8, author_id, "814437814111830027")) {
+        const content = data.op_content orelse return;
+        if (std.mem.startsWith(u8, content, block_ansi)) {
+            // TODO: convert back to zig (remove ansi)
+            try io.stdout.print("CONVERT BACK TO ZIG.\n", .{});
+            try io.stdout.flush();
+        } else if (std.mem.startsWith(u8, content, block_zig)) {
+            // TODO: convert back to ansi (pass through function)
+            try io.stdout.print("CONVERT BACK TO ANSI.\n", .{});
+            try io.stdout.flush();
+        }
+    }
+}
+
+pub fn litterEmojiZigBlock(data: *const root.ReactionAddData) !void {
+    const emoji_name = data.emoji_name orelse return;
+    if (!std.mem.eql(u8, emoji_name, "🚯")) return;
+
+    const author_id = data.op_author_id orelse return;
+    if (std.mem.eql(u8, author_id, "814437814111830027")) {
+        if (data.user_manages_messages) {
+            // Delete the message if the user has the required permissions
+            api.deleteMessage(data.op_channel_id, data.op_message_id);
+        } else {
+            // Delete the message if the original poster requests deletion
+            const original_author_id = data.op_reply_author_id orelse return;
+            if (std.mem.eql(u8, data.user_id, original_author_id)) {
+                api.deleteMessage(data.op_channel_id, data.op_message_id);
+            }
+        }
     }
 }
 
@@ -48,109 +100,113 @@ const Color = enum {
     }
 };
 
-fn highlightZig(zig_code: [:0]const u8, buffer: *[2000]u8) ![]const u8 {
-    var writer: std.Io.Writer = .fixed(buffer);
-    try writer.writeAll("```ansi\n");
+fn highlightZig(zig_code: []const u8, buffer: *[2000]u8) ![]const u8 {
+    // TODO
+    _ = zig_code;
+    _ = buffer;
+    return "placeholder message here.";
+    // var writer: std.Io.Writer = .fixed(buffer);
+    // try writer.writeAll("```ansi\n");
 
-    var last_index: usize = 0;
-    var current_color: Color = .white;
+    // var last_index: usize = 0;
+    // var current_color: Color = .white;
 
-    var toker: std.zig.Tokenizer = .init(zig_code);
-    while (true) {
-        const token = toker.next();
-        if (token.tag == .eof) break;
-        const token_str = zig_code[token.loc.start..token.loc.end];
+    // var toker: std.zig.Tokenizer = .init(zig_code);
+    // while (true) {
+    //     const token = toker.next();
+    //     if (token.tag == .eof) break;
+    //     const token_str = zig_code[token.loc.start..token.loc.end];
 
-        const token_color: Color = switch (token.tag) {
-            .identifier,
-            => blk: {
-                if (tools.isUpper(token_str[0]) or isPrimitive(token_str)) {
-                    break :blk .magenta;
-                }
+    //     const token_color: Color = switch (token.tag) {
+    //         .identifier,
+    //         => blk: {
+    //             if (tools.isUpper(token_str[0]) or isPrimitive(token_str)) {
+    //                 break :blk .magenta;
+    //             }
 
-                if (zig_code[token.loc.end] == '(') {
-                    break :blk .cyan;
-                }
+    //             if (zig_code[token.loc.end] == '(') {
+    //                 break :blk .cyan;
+    //             }
 
-                for (token_str) |byte| {
-                    if (tools.isUpper(byte)) {
-                        break :blk .cyan;
-                    }
-                }
+    //             for (token_str) |byte| {
+    //                 if (tools.isUpper(byte)) {
+    //                     break :blk .cyan;
+    //                 }
+    //             }
 
-                break :blk .white;
-            },
-            .string_literal,
-            .multiline_string_literal_line,
-            .char_literal,
-            .number_literal,
-            => .green,
-            .builtin,
-            => .red,
-            .keyword_addrspace,
-            .keyword_align,
-            .keyword_allowzero,
-            .keyword_and,
-            .keyword_anyframe,
-            .keyword_anytype,
-            .keyword_asm,
-            .keyword_break,
-            .keyword_callconv,
-            .keyword_catch,
-            .keyword_comptime,
-            .keyword_const,
-            .keyword_continue,
-            .keyword_defer,
-            .keyword_else,
-            .keyword_enum,
-            .keyword_errdefer,
-            .keyword_error,
-            .keyword_export,
-            .keyword_extern,
-            .keyword_fn,
-            .keyword_for,
-            .keyword_if,
-            .keyword_inline,
-            .keyword_noalias,
-            .keyword_noinline,
-            .keyword_nosuspend,
-            .keyword_opaque,
-            .keyword_or,
-            .keyword_orelse,
-            .keyword_packed,
-            .keyword_pub,
-            .keyword_resume,
-            .keyword_return,
-            .keyword_linksection,
-            .keyword_struct,
-            .keyword_suspend,
-            .keyword_switch,
-            .keyword_test,
-            .keyword_threadlocal,
-            .keyword_try,
-            .keyword_union,
-            .keyword_unreachable,
-            .keyword_var,
-            .keyword_volatile,
-            .keyword_while,
-            => .yellow,
-            else => .blue,
-        };
+    //             break :blk .white;
+    //         },
+    //         .string_literal,
+    //         .multiline_string_literal_line,
+    //         .char_literal,
+    //         .number_literal,
+    //         => .green,
+    //         .builtin,
+    //         => .red,
+    //         .keyword_addrspace,
+    //         .keyword_align,
+    //         .keyword_allowzero,
+    //         .keyword_and,
+    //         .keyword_anyframe,
+    //         .keyword_anytype,
+    //         .keyword_asm,
+    //         .keyword_break,
+    //         .keyword_callconv,
+    //         .keyword_catch,
+    //         .keyword_comptime,
+    //         .keyword_const,
+    //         .keyword_continue,
+    //         .keyword_defer,
+    //         .keyword_else,
+    //         .keyword_enum,
+    //         .keyword_errdefer,
+    //         .keyword_error,
+    //         .keyword_export,
+    //         .keyword_extern,
+    //         .keyword_fn,
+    //         .keyword_for,
+    //         .keyword_if,
+    //         .keyword_inline,
+    //         .keyword_noalias,
+    //         .keyword_noinline,
+    //         .keyword_nosuspend,
+    //         .keyword_opaque,
+    //         .keyword_or,
+    //         .keyword_orelse,
+    //         .keyword_packed,
+    //         .keyword_pub,
+    //         .keyword_resume,
+    //         .keyword_return,
+    //         .keyword_linksection,
+    //         .keyword_struct,
+    //         .keyword_suspend,
+    //         .keyword_switch,
+    //         .keyword_test,
+    //         .keyword_threadlocal,
+    //         .keyword_try,
+    //         .keyword_union,
+    //         .keyword_unreachable,
+    //         .keyword_var,
+    //         .keyword_volatile,
+    //         .keyword_while,
+    //         => .yellow,
+    //         else => .blue,
+    //     };
 
-        const leading = zig_code[last_index..token.loc.start];
-        try writer.writeAll(leading);
+    //     const leading = zig_code[last_index..token.loc.start];
+    //     try writer.writeAll(leading);
 
-        if (token_color != current_color) {
-            try writer.writeAll(token_color.code());
-            current_color = token_color;
-        }
+    //     if (token_color != current_color) {
+    //         try writer.writeAll(token_color.code());
+    //         current_color = token_color;
+    //     }
 
-        try writer.writeAll(token_str);
-        last_index = token.loc.end;
-    }
+    //     try writer.writeAll(token_str);
+    //     last_index = token.loc.end;
+    // }
 
-    try writer.writeAll("```");
-    return writer.buffered();
+    // try writer.writeAll("```");
+    // return writer.buffered();
 }
 
 const primitives = &.{
