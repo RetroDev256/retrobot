@@ -173,11 +173,11 @@ client.on("messageCreate", (message) => {
     try {
         pushString(
             JSON.stringify({
-                channel_id: message.channelId, // []const u8
-                message_id: message.id, // []const u8
-                author_id: message.author.id, // []const u8
-                content: message.content, // []const u8
-                author_is_bot: message.author.bot, // bool
+                channel_id: message.channelId as string,
+                message_id: message.id as string,
+                author_id: message.author.id as string,
+                content: message.content as string,
+                author_is_bot: message.author.bot as boolean,
             })
         );
         messageCreate();
@@ -188,15 +188,19 @@ client.on("messageCreate", (message) => {
 
 client.on("messageReactionAdd", async (reaction, user) => {
     try {
+        if (reaction.partial) {
+            // ensure op_author_id & op_content are non-null
+            await reaction.fetch();
+        }
+
         pushString(
             JSON.stringify({
-                op_channel_id: reaction.message.channelId, // []const u8
-                op_message_id: reaction.message.id, // []const u8
-                op_partial: reaction.message.partial, // bool
-                op_author_id: reaction.message.author?.id, // ?[]const u8
-                op_content: reaction.message.content, // ?[]const u8
-                user_id: user.id, // []const u8
-                emoji_name: reaction.emoji.name, // ?[]const u8
+                op_channel_id: reaction.message.channelId as string,
+                op_message_id: reaction.message.id as string,
+                op_author_id: reaction.message.author?.id as string,
+                op_content: reaction.message.content as string,
+                user_id: user.id as string,
+                emoji_name: reaction.emoji.name as string | null,
             })
         );
         reactionAdd();

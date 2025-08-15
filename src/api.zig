@@ -176,9 +176,8 @@ pub const ReactionAdd = struct {
 
     op_channel_id: []const u8,
     op_message_id: []const u8,
-    op_partial: bool,
-    op_author_id: ?[]const u8,
-    op_content: ?[]const u8,
+    op_author_id: []const u8,
+    op_content: []const u8,
     user_id: []const u8,
     emoji_name: ?[]const u8,
 
@@ -192,9 +191,8 @@ pub const ReactionAdd = struct {
         const data = try std.json.parseFromSliceLeaky(struct {
             op_channel_id: []const u8,
             op_message_id: []const u8,
-            op_partial: bool,
-            op_author_id: ?[]const u8,
-            op_content: ?[]const u8,
+            op_author_id: []const u8,
+            op_content: []const u8,
             user_id: []const u8,
             emoji_name: ?[]const u8,
         }, arena, json, .{ .allocate = .alloc_always });
@@ -203,7 +201,6 @@ pub const ReactionAdd = struct {
             .arena = arena_state,
             .op_channel_id = data.op_channel_id,
             .op_message_id = data.op_message_id,
-            .op_partial = data.op_partial,
             .op_author_id = data.op_author_id,
             .op_content = data.op_content,
             .user_id = data.user_id,

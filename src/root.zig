@@ -10,6 +10,7 @@ pub const prefix: []const u8 = ".";
 pub const gpa = std.heap.wasm_allocator;
 pub const csprng: std.Random = .{ .ptr = undefined, .fillFn = fillFn };
 
+// this is a test comment
 fn fillFn(_: *anyopaque, buf: []u8) void {
     api.fillRandom(buf) catch |err| {
         handle(err, @src());

@@ -46,19 +46,17 @@ pub fn recycleEmojiZigBlock(data: *const api.ReactionAdd) !void {
     const emoji_name = data.emoji_name orelse return;
     if (!std.mem.eql(u8, emoji_name, "♻️")) return;
 
-    const author_id = data.op_author_id orelse return;
-    if (std.mem.eql(u8, author_id, root.bot_id)) {
-        const content = data.op_content orelse return;
-        if (std.mem.startsWith(u8, content, block_ansi)) {
+    if (std.mem.eql(u8, data.op_author_id, root.bot_id)) {
+        if (std.mem.startsWith(u8, data.op_content, block_ansi)) {
             // Convert the ansi block to typescript
-            const clip_front = content[block_ansi.len..];
+            const clip_front = data.op_content[block_ansi.len..];
             const block_length = clip_front.len - block_end.len;
             var buffer: [2000]u8 = undefined;
             const ts = try ansiToTs(clip_front[0..block_length], &buffer);
             api.editMessage(data.op_channel_id, data.op_message_id, ts);
-        } else if (std.mem.startsWith(u8, content, block_ts)) {
+        } else if (std.mem.startsWith(u8, data.op_content, block_ts)) {
             // Convert the typescript block to ansi
-            const clip_front = content[block_ts.len..];
+            const clip_front = data.op_content[block_ts.len..];
             const block_length = clip_front.len - block_end.len;
             var buffer: [2000]u8 = undefined;
             const ansi = try zigToAnsi(clip_front[0..block_length], &buffer);
@@ -90,6 +88,7 @@ pub fn litterEmojiZigBlock(data: *const api.ReactionAdd) !void {
 }
 
 const Color = enum {
+    gray,
     red,
     green,
     yellow,
@@ -98,8 +97,19 @@ const Color = enum {
     cyan,
     white,
 
+    const comments: Color = .gray;
+    const builtins: Color = .red;
+    const dot_literals: Color = .green;
+    const functions: Color = .yellow;
+    const literals: Color = .blue;
+    const keywords: Color = .magenta;
+    const types: Color = .cyan;
+    const identifiers: Color = .white;
+    const otherwise: Color = .white;
+
     fn code(self: Color) []const u8 {
         return switch (self) {
+            .gray => "\x1b[30m",
             .red => "\x1b[31m",
             .green => "\x1b[32m",
             .yellow => "\x1b[33m",
@@ -118,22 +128,20 @@ fn ansiToTs(code: []const u8, buffer: *[2000]u8) ![]const u8 {
     try writer.writeAll(block_ts);
 
     var index: usize = 0;
-    while (std.mem.indexOfScalarPos(u8, code, index, '\x1b')) |next| {
+    scan: while (std.mem.indexOfScalarPos(u8, code, index, '\x1b')) |next| {
         try writer.writeAll(code[index..next]);
         index += next - index;
 
-        if (next + 4 < code.len and
-            code[next + 1] == '[' and
-            code[next + 2] == '3' and
-            code[next + 3] >= '1' and
-            code[next + 3] <= '7' and
-            code[next + 4] == 'm')
-        {
-            index += 5;
-        } else {
-            try writer.writeByte(code[next]);
-            index += 1;
+        inline for (@typeInfo(Color).@"enum".fields) |field| {
+            const value: Color = @enumFromInt(field.value);
+            if (std.mem.startsWith(u8, code[next..], value.code())) {
+                index += value.code().len;
+                continue :scan;
+            }
         }
+
+        try writer.writeByte(code[next]);
+        index += 1;
     }
 
     try writer.writeAll(code[index..]);
@@ -152,18 +160,11 @@ const State = enum {
     builtin,
     string_literal,
     number,
+    dot_literal,
     other,
 };
 
-/// Parses zig code and formats the result with ansi escape
-/// sequences, attempting to represent the following rules:
-/// 0. types are .magenta
-/// 1. functions are .cyan
-/// 2. identifiers are .blue
-/// 3. literals are .green
-/// 4. builtins are .red
-/// 5. keywords are .yellow
-/// 6. comments & otherwise are .white
+/// Parses zig code and colors the result with ansi escape sequences
 fn zigToAnsi(zig_code: []const u8, buffer: *[2000]u8) ![]const u8 {
     // This null delimiter simplifies our parser.
     var delimited_code: [2000]u8 = undefined;
@@ -181,7 +182,10 @@ fn zigToAnsi(zig_code: []const u8, buffer: *[2000]u8) ![]const u8 {
             0 => break :fsa, // we reached eof
             ' ', '\n', '\t', '\r' => {
                 try writer.writeByte(try reader.takeByte());
-                continue :fsa .start;
+                switch (try reader.peekByte()) {
+                    '.' => continue :fsa .dot_literal,
+                    else => continue :fsa .start,
+                }
             },
             '"' => continue :fsa .string,
             '\'' => continue :fsa .char,
@@ -203,8 +207,8 @@ fn zigToAnsi(zig_code: []const u8, buffer: *[2000]u8) ![]const u8 {
         // we've seen the '"' byte, starting a string
         .string => {
             // Update the color if it needs to be changed
-            if (color != .green) {
-                color = .green;
+            if (color != Color.literals) {
+                color = Color.literals;
                 try writer.writeAll(color.code());
             }
 
@@ -228,8 +232,8 @@ fn zigToAnsi(zig_code: []const u8, buffer: *[2000]u8) ![]const u8 {
         // we've seen the '\'' byte, starting a character
         .char => {
             // Update the color if it needs to be changed
-            if (color != .green) {
-                color = .green;
+            if (color != Color.literals) {
+                color = Color.literals;
                 try writer.writeAll(color.code());
             }
 
@@ -259,8 +263,8 @@ fn zigToAnsi(zig_code: []const u8, buffer: *[2000]u8) ![]const u8 {
             }
 
             // Update the color if it needs to be changed
-            if (color != .white) {
-                color = .white;
+            if (color != Color.comments) {
+                color = Color.comments;
                 try writer.writeAll(color.code());
             }
             _ = try reader.streamDelimiterEnding(&writer, '\n');
@@ -269,8 +273,8 @@ fn zigToAnsi(zig_code: []const u8, buffer: *[2000]u8) ![]const u8 {
         // we've seen an uppercase letter, starting a type
         .type => {
             // Update the color if it needs to be changed
-            if (color != .magenta) {
-                color = .magenta;
+            if (color != Color.types) {
+                color = Color.types;
                 try writer.writeAll(color.code());
             }
 
@@ -306,10 +310,11 @@ fn zigToAnsi(zig_code: []const u8, buffer: *[2000]u8) ![]const u8 {
             const identifier = try reader.take(length);
 
             const new_color: Color = determine: {
-                if (isKeyword(identifier)) break :determine .yellow;
-                if (isPrimitive(identifier)) break :determine .magenta;
-                if (is_function) break :determine .cyan;
-                break :determine .blue;
+                if (isKeyword(identifier)) break :determine Color.keywords;
+                if (isPrimitive(identifier)) break :determine Color.types;
+                if (isLiteral(identifier)) break :determine Color.literals;
+                if (is_function) break :determine Color.functions;
+                break :determine Color.identifiers;
             };
 
             // Update the color if it needs to be changed
@@ -325,8 +330,8 @@ fn zigToAnsi(zig_code: []const u8, buffer: *[2000]u8) ![]const u8 {
         // we've seen @, starting a builtin - we don't care about identifiers
         .builtin => {
             // Update the color if it needs to be changed
-            if (color != .red) {
-                color = .red;
+            if (color != Color.builtins) {
+                color = Color.builtins;
                 try writer.writeAll(color.code());
             }
 
@@ -349,8 +354,8 @@ fn zigToAnsi(zig_code: []const u8, buffer: *[2000]u8) ![]const u8 {
             }
 
             // Update the color if it needs to be changed
-            if (color != .green) {
-                color = .green;
+            if (color != Color.literals) {
+                color = Color.literals;
                 try writer.writeAll(color.code());
             }
             _ = try reader.streamDelimiterEnding(&writer, '\n');
@@ -359,8 +364,8 @@ fn zigToAnsi(zig_code: []const u8, buffer: *[2000]u8) ![]const u8 {
         // we've seen '0'...'9', starting a number
         .number => {
             // Update the color if it needs to be changed
-            if (color != .green) {
-                color = .green;
+            if (color != Color.literals) {
+                color = Color.literals;
                 try writer.writeAll(color.code());
             }
 
@@ -373,11 +378,35 @@ fn zigToAnsi(zig_code: []const u8, buffer: *[2000]u8) ![]const u8 {
                 }
             }
         },
+        // we've seen " .", possibly starting a dot literal
+        .dot_literal => {
+            // Handle the case in which we don't have a literal
+            switch ((try reader.peek(2))[1]) {
+                'a'...'z', 'A'...'Z', '_' => {},
+                else => continue :fsa .start,
+            }
+
+            // Update the color if it needs to be changed
+            if (color != Color.dot_literals) {
+                color = Color.dot_literals;
+                try writer.writeAll(color.code());
+            }
+
+            try writer.writeAll(try reader.take(2));
+            while (true) {
+                switch (try reader.peekByte()) {
+                    'a'...'z', 'A'...'Z', '_', '0'...'9' => {
+                        try writer.writeByte(try reader.takeByte());
+                    },
+                    else => continue :fsa .start,
+                }
+            }
+        },
         // we just need to chew through these other symbols
         .other => {
             // Update the color if it needs to be changed
-            if (color != .white) {
-                color = .white;
+            if (color != Color.otherwise) {
+                color = Color.otherwise;
                 try writer.writeAll(color.code());
             }
 
@@ -396,8 +425,7 @@ const primitives: []const []const u8 = &.{
     "c_char",      "c_short",  "c_uint",         "c_ulong",
     "c_ulonglong", "c_ushort", "comptime_float", "comptime_int",
     "f128",        "f16",      "f32",            "f64",
-    "f80",         "false",    "isize",          "noreturn",
-    "null",        "true",     "type",           "undefined",
+    "f80",         "isize",    "noreturn",       "type",
     "usize",       "void",
 };
 
@@ -423,6 +451,19 @@ fn isPrimitive(name: []const u8) bool {
     }
 
     return true;
+}
+
+const literals: []const []const u8 = &.{
+    "true", "false", "null", "undefined",
+};
+
+fn isLiteral(name: []const u8) bool {
+    for (literals) |literal| {
+        if (std.mem.eql(u8, literal, name)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 const keywords: []const []const u8 = &.{
