@@ -155,6 +155,19 @@ const allocateMem = exports["allocateMem"] as (len: number) => number;
 const messageCreate = exports["messageCreate"] as () => void;
 const reactionAdd = exports["reactionAdd"] as () => void;
 
+client.once("ready", (client) => {
+    console.log("Logged in as", client.user?.tag);
+    for (const guild of client.guilds.cache.values()) {
+        console.log(`- ${guild.name}: ${guild.memberCount} members`);
+    }
+});
+
+client.on("guildMemberAdd", async (member) => {
+    const channel = member.guild.systemChannel;
+    if (channel === null) return;
+    await channel.send(`Welcome ${member}! o/`);
+});
+
 client.on("messageCreate", (message) => {
     try {
         setString(
