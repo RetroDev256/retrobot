@@ -141,7 +141,18 @@ fn ansiToTs(code: []const u8, buffer: *[2000]u8) ![]const u8 {
 }
 
 // Tokenizer state for parsing zig
-const State = enum { start, string, char, comment, type, identifier, builtin, string_literal, number, other };
+const State = enum {
+    start,
+    string,
+    char,
+    comment,
+    type,
+    identifier,
+    builtin,
+    string_literal,
+    number,
+    other,
+};
 
 /// Parses zig code and formats the result with ansi escape
 /// sequences, attempting to represent the following rules:
@@ -318,6 +329,7 @@ fn zigToAnsi(zig_code: []const u8, buffer: *[2000]u8) ![]const u8 {
                 try writer.writeAll(color.code());
             }
 
+            try writer.writeByte(try reader.takeByte());
             while (true) {
                 switch (try reader.peekByte()) {
                     'a'...'z', 'A'...'Z', '_', '0'...'9' => {
