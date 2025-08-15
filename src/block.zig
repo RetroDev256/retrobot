@@ -13,7 +13,7 @@ const max_blocks = 3;
 
 /// Creates up to max_blocks highlighted zig code blocks
 pub fn createZigBlock(data: *const api.Message) !void {
-    if (data.author_is_bot) return;
+    if (data.is_bot) return;
     var index: usize = 0;
     for (0..max_blocks) |_| {
         // Locate the next zig block and advance our index
@@ -43,24 +43,24 @@ pub fn callbackReactZigBlock(data: *const api.Message) !void {
 /// Recycling emoji effect on highlighted blocks (swaps between zig and ts)
 pub fn recycleEmojiZigBlock(data: *const api.Reaction) !void {
     if (std.mem.eql(u8, data.user_id, root.bot_id)) return;
-    const emoji_name = data.emoji_name orelse return;
+    const emoji_name = data.emoji orelse return;
     if (!std.mem.eql(u8, emoji_name, "♻️")) return;
 
-    if (std.mem.eql(u8, data.op_author_id, root.bot_id)) {
-        if (std.mem.startsWith(u8, data.op_content, block_ansi)) {
+    if (std.mem.eql(u8, data.author_id, root.bot_id)) {
+        if (std.mem.startsWith(u8, data.content, block_ansi)) {
             // Convert the ansi block to typescript
-            const clip_front = data.op_content[block_ansi.len..];
+            const clip_front = data.content[block_ansi.len..];
             const block_length = clip_front.len - block_end.len;
             var buffer: [2000]u8 = undefined;
             const ts = try ansiToTs(clip_front[0..block_length], &buffer);
-            api.editMessage(data.op_channel_id, data.op_message_id, ts);
-        } else if (std.mem.startsWith(u8, data.op_content, block_ts)) {
+            api.editMessage(data.channel_id, data.message_id, ts);
+        } else if (std.mem.startsWith(u8, data.content, block_ts)) {
             // Convert the typescript block to ansi
-            const clip_front = data.op_content[block_ts.len..];
+            const clip_front = data.content[block_ts.len..];
             const block_length = clip_front.len - block_end.len;
             var buffer: [2000]u8 = undefined;
             const ansi = try zigToAnsi(clip_front[0..block_length], &buffer);
-            api.editMessage(data.op_channel_id, data.op_message_id, ansi);
+            api.editMessage(data.channel_id, data.message_id, ansi);
         }
     }
 }
@@ -68,20 +68,88 @@ pub fn recycleEmojiZigBlock(data: *const api.Reaction) !void {
 /// Litter emoji effect on highlighted blocks (conditional deletion of block)
 pub fn litterEmojiZigBlock(data: *const api.Reaction) !void {
     if (std.mem.eql(u8, data.user_id, root.bot_id)) return;
-    const emoji_name = data.emoji_name orelse return;
+    const emoji_name = data.emoji orelse return;
     if (!std.mem.eql(u8, emoji_name, "🚯")) return;
 
-    if (std.mem.eql(u8, data.op_author_id, root.bot_id)) {
-        // if (data.user_manages_messages) {
-        //     // Delete the message if the user has the required permissions
-        //     api.deleteMessage(data.op_channel_id, data.op_message_id);
-        // } else {
-        //     // Delete the message if the original poster requests deletion
-        //     const original_author_id = data.op_reply_author_id orelse return;
-        //     if (std.mem.eql(u8, data.user_id, original_author_id)) {
-        //         api.deleteMessage(data.op_channel_id, data.op_message_id);
-        //     }
-        // }
+    // Step 1. Ensure that we are the one who sent that message
+    if (std.mem.eql(u8, data.author_id, root.bot_id)) {
+        // Store information for the callback
+        const channel_id_owned = try root.gpa.dupe(u8, data.channel_id);
+        errdefer root.gpa.free(channel_id_owned);
+        try api.pushString(channel_id_owned);
+        const message_id_owned = try root.gpa.dupe(u8, data.author_id);
+        errdefer root.gpa.free(message_id_owned);
+        try api.pushString(message_id_owned);
+        const author_id_owned = try root.gpa.dupe(u8, data.author_id);
+        errdefer root.gpa.free(author_id_owned);
+        try api.pushString(author_id_owned);
+
+        // Request the reference for target message
+        api.fetchReference(data.channel_id, data.message_id, "blockCallbackA");
+    }
+}
+
+// PART 2 of litterEmojiZigBlock
+export fn blockCallbackA() void {
+    blockCallbackAInner() catch |err| root.handle(err, @src());
+}
+
+fn blockCallbackAInner() !void {
+    var arena: std.heap.ArenaAllocator = .init(root.gpa);
+    defer arena.deinit();
+
+    const json = try api.popString();
+    defer root.gpa.free(json);
+    const author_id = try api.popString();
+    defer root.gpa.free(author_id);
+    const message_id = try api.popString();
+    defer root.gpa.free(message_id);
+    const channel_id = try api.popString();
+    defer root.gpa.free(channel_id);
+
+    const fetch: api.FetchReference = try .parse(arena.allocator(), json);
+    const reference = fetch.message orelse return;
+
+    if (std.mem.eql(u8, author_id, reference.author_id)) {
+        // Delete the message if we react to a reply of our own message
+        // We've checked this is our own message in litterEmojiZigBlock
+        api.deleteMessage(channel_id, message_id);
+    } else {
+        // Store information for the callback
+        const message_id_owned = try root.gpa.dupe(u8, author_id);
+        errdefer root.gpa.free(message_id_owned);
+        try api.pushString(message_id_owned);
+        const channel_id_owned = try root.gpa.dupe(u8, channel_id);
+        errdefer root.gpa.free(channel_id_owned);
+        try api.pushString(channel_id_owned);
+
+        // Request the permissions for target message
+        api.fetchPermissions(channel_id, message_id, "blockCallbackB");
+    }
+}
+
+export fn blockCallbackB() void {
+    blockCallbackBInner() catch |err| root.handle(err, @src());
+}
+
+fn blockCallbackBInner() !void {
+    var arena: std.heap.ArenaAllocator = .init(root.gpa);
+    defer arena.deinit();
+
+    const json = try api.popString();
+    defer root.gpa.free(json);
+    const channel_id = try api.popString();
+    defer root.gpa.free(channel_id);
+    const message_id = try api.popString();
+    defer root.gpa.free(message_id);
+
+    const fetch: api.FetchPermission = try .parse(arena.allocator(), json);
+    const permissions = fetch.permissions orelse return;
+
+    if (permissions.manages_messages) {
+        // Delete the message if the person reacting has permissions
+        // We've checked this is our message in litterEmojiZigBlock
+        api.deleteMessage(channel_id, message_id);
     }
 }
 

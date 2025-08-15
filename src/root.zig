@@ -3,7 +3,7 @@ const acr = @import("acr.zig");
 const api = @import("api.zig");
 const io = @import("io.zig");
 const tools = @import("tools.zig");
-const zig_block = @import("zig_block.zig");
+const block = @import("block.zig");
 
 pub const bot_id: []const u8 = "814437814111830027";
 pub const prefix: []const u8 = ".";
@@ -18,7 +18,7 @@ fn fillFn(_: *anyopaque, buf: []u8) void {
     };
 }
 
-fn handle(err: anytype, src: std.builtin.SourceLocation) void {
+pub fn handle(err: anytype, src: std.builtin.SourceLocation) void {
     switch (err) {
         inline else => |known| {
             io.stdout.print(
@@ -72,14 +72,14 @@ fn messageCreateInner() !void {
         handleRand,
         handleShoulds,
         acr.handleAcr,
-        zig_block.createZigBlock,
-        zig_block.callbackReactZigBlock,
+        block.createZigBlock,
+        block.callbackReactZigBlock,
     }) |handler| try handler(&data);
 }
 
 // respond to case-insensitive "ping" with "pong"
 fn handlePing(data: *const api.Message) !void {
-    if (data.author_is_bot) return;
+    if (data.is_bot) return;
     if (std.mem.eql(u8, "ping", data.content)) {
         api.replyMessage(data.channel_id, data.message_id, "pong");
     }
@@ -87,7 +87,7 @@ fn handlePing(data: *const api.Message) !void {
 
 // respond to case-insensitive "no u" with "no u"
 fn handleNoU(data: *const api.Message) !void {
-    if (data.author_is_bot) return;
+    if (data.is_bot) return;
     if (tools.insensitiveEql("no u", data.content)) {
         api.replyMessage(data.channel_id, data.message_id, "no u");
     }
@@ -95,7 +95,7 @@ fn handleNoU(data: *const api.Message) !void {
 
 // respond to case-insensitive "rand" command with random u64
 fn handleRand(data: *const api.Message) !void {
-    if (data.author_is_bot) return;
+    if (data.is_bot) return;
     if (std.mem.startsWith(u8, data.content, prefix ++ "rand")) {
         var buffer: [64]u8 = undefined;
         var writer = std.Io.Writer.fixed(&buffer);
@@ -112,7 +112,7 @@ fn handleRand(data: *const api.Message) !void {
 
 // respond to "should i..." and "should we..." with random decision
 fn handleShoulds(data: *const api.Message) !void {
-    if (data.author_is_bot) return;
+    if (data.is_bot) return;
     const should_i = tools.startsWithInsensitive("should i", data.content);
     const should_we = tools.startsWithInsensitive("should we", data.content);
     if (should_i or should_we) {
@@ -135,8 +135,8 @@ fn reactionAddInner() !void {
     const data: api.Reaction = try .parse(arena.allocator(), json);
 
     inline for (&.{
-        zig_block.recycleEmojiZigBlock,
-        zig_block.litterEmojiZigBlock,
+        block.recycleEmojiZigBlock,
+        block.litterEmojiZigBlock,
     }) |handler| try handler(&data);
 }
 
@@ -145,5 +145,5 @@ comptime {
     _ = api;
     _ = io;
     _ = tools;
-    _ = zig_block;
+    _ = block;
 }

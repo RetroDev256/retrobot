@@ -28,16 +28,16 @@ type MessageApi = {
     message_id: string;
     author_id: string;
     content: string;
-    author_is_bot: boolean;
+    is_bot: boolean;
 };
 
 type ReactionApi = {
-    op_channel_id: string;
-    op_message_id: string;
-    op_author_id: string;
-    op_content: string;
+    channel_id: string;
+    message_id: string;
+    author_id: string;
+    content: string;
     user_id: string;
-    emoji_name: string | null;
+    emoji: string | null;
 };
 
 type FetchReferenceApi = {
@@ -199,7 +199,7 @@ const wasm_env = {
                         message_id: reference.id,
                         author_id: reference.author.id,
                         content: reference.content,
-                        author_is_bot: reference.author.bot,
+                        is_bot: reference.author.bot,
                     };
                 }
 
@@ -278,7 +278,7 @@ client.on("messageCreate", (message) => {
                 message_id: message.id,
                 author_id: message.author.id,
                 content: message.content,
-                author_is_bot: message.author.bot,
+                is_bot: message.author.bot,
             } as MessageApi)
         );
         messageCreate();
@@ -294,12 +294,12 @@ client.on("messageReactionAdd", async (reaction, user) => {
 
         pushString(
             JSON.stringify({
-                op_channel_id: reaction.message.channelId,
-                op_message_id: reaction.message.id,
-                op_author_id: reaction.message.author?.id,
-                op_content: reaction.message.content,
+                channel_id: reaction.message.channelId,
+                message_id: reaction.message.id,
+                author_id: reaction.message.author?.id,
+                content: reaction.message.content,
                 user_id: user.id,
-                emoji_name: reaction.emoji.name,
+                emoji: reaction.emoji.name,
             } as ReactionApi)
         );
         reactionAdd();

@@ -35,7 +35,7 @@ fn splitList(text: []const u8) ![26][]const []const u8 {
 }
 
 pub fn handleAcr(data: *const api.Message) !void {
-    if (data.author_is_bot) return;
+    if (data.is_bot) return;
     const command = root.prefix ++ "acr ";
     if (!std.mem.startsWith(u8, data.content, command)) return;
 
