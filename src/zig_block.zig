@@ -158,11 +158,11 @@ const State = enum {
 /// sequences, attempting to represent the following rules:
 /// 0. types are .magenta
 /// 1. functions are .cyan
-/// 2. identifiers are .white
+/// 2. identifiers are .blue
 /// 3. literals are .green
 /// 4. builtins are .red
 /// 5. keywords are .yellow
-/// 6. comments & otherwise are .blue
+/// 6. comments & otherwise are .white
 fn zigToAnsi(zig_code: []const u8, buffer: *[2000]u8) ![]const u8 {
     // This null delimiter simplifies our parser.
     var delimited_code: [2000]u8 = undefined;
@@ -258,8 +258,8 @@ fn zigToAnsi(zig_code: []const u8, buffer: *[2000]u8) ![]const u8 {
             }
 
             // Update the color if it needs to be changed
-            if (color != .blue) {
-                color = .blue;
+            if (color != .white) {
+                color = .white;
                 try writer.writeAll(color.code());
             }
             _ = try reader.streamDelimiterEnding(&writer, '\n');
@@ -308,7 +308,7 @@ fn zigToAnsi(zig_code: []const u8, buffer: *[2000]u8) ![]const u8 {
                 if (isKeyword(identifier)) break :determine .yellow;
                 if (isPrimitive(identifier)) break :determine .magenta;
                 if (is_function) break :determine .cyan;
-                break :determine .white;
+                break :determine .blue;
             };
 
             // Update the color if it needs to be changed
@@ -375,8 +375,8 @@ fn zigToAnsi(zig_code: []const u8, buffer: *[2000]u8) ![]const u8 {
         // we just need to chew through these other symbols
         .other => {
             // Update the color if it needs to be changed
-            if (color != .blue) {
-                color = .blue;
+            if (color != .white) {
+                color = .white;
                 try writer.writeAll(color.code());
             }
 
