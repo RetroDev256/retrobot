@@ -54,7 +54,9 @@ const wasm_env = {
                 if (!channel || !("messages" in channel)) return;
                 const message = channel.messages.fetch(message_id);
                 await (await message).reply(content);
-            } catch {}
+            } catch (err) {
+                console.log("TypeScript Error: " + String(err));
+            }
         })();
     },
     editMessageApi: (
@@ -75,7 +77,9 @@ const wasm_env = {
                 if (!channel || !("messages" in channel)) return;
                 const message = await channel.messages.fetch(message_id);
                 await message.edit(content);
-            } catch {}
+            } catch (err) {
+                console.log("TypeScript Error: " + String(err));
+            }
         })();
     },
     deleteMessageApi: (
@@ -93,7 +97,9 @@ const wasm_env = {
                 if (!channel || !("messages" in channel)) return;
                 const message = await channel.messages.fetch(message_id);
                 await message.delete();
-            } catch {}
+            } catch (err) {
+                console.log("TypeScript Error: " + String(err));
+            }
         })();
     },
 };

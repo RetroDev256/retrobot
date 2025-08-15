@@ -1,18 +1,13 @@
 const std = @import("std");
 const api = @import("api.zig");
 const tools = @import("tools.zig");
-const gpa = @import("root").gpa;
+const root = @import("root");
 
-pub fn handleZigBlock(message: []const u8) !usize {
-    var response: usize = 0;
-    errdefer for (0..response) |_| {
-        gpa.free(api.popString());
-    };
-
+pub fn handleZigBlock(data: *const root.MessageCreateData) !void {
     var last_idx: usize = 0;
-    while (tools.indexOf(message, last_idx, "```zig\n")) |start_idx| {
-        if (tools.indexOf(message, start_idx + 7, "```")) |end_idx| {
-            const zig_code = message[start_idx + 7 .. end_idx];
+    while (std.mem.indexOfPos(u8, data.content, last_idx, "```zig\n")) |start_idx| {
+        if (std.mem.indexOfPos(u8, data.content, start_idx + 7, "```")) |end_idx| {
+            const zig_code = data.content[start_idx + 7 .. end_idx];
             if (zig_code.len > 0 and zig_code.len < 2000) {
                 // The Zig tokenizer expects 0-delimited memory
                 var delimit_buffer: [2000]u8 = undefined;
@@ -21,16 +16,13 @@ pub fn handleZigBlock(message: []const u8) !usize {
                 const delimited = delimit_buffer[0..zig_code.len :0];
 
                 var block_buffer: [2000]u8 = undefined;
-                if (colorAnsiZig(delimited, &block_buffer)) |ansi_block| {
-                    try api.pushString(ansi_block);
-                    response += 1;
+                if (colorAnsiZig(delimited, &block_buffer)) |reply| {
+                    api.replyMessage(data.channel_id, data.id, reply);
                 } else |_| {}
             }
             last_idx = end_idx + 3;
         } else break;
     }
-
-    return response;
 }
 
 const Color = enum {
@@ -173,7 +165,7 @@ const primitives = &.{
 
 fn isPrimitive(name: []const u8) bool {
     inline for (primitives) |primitive| {
-        if (tools.eql(primitive, name)) {
+        if (std.mem.eql(u8, primitive, name)) {
             return true;
         }
     }

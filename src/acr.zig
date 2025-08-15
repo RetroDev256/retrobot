@@ -4,12 +4,15 @@ const io = @import("io.zig");
 const tools = @import("tools.zig");
 const root = @import("root");
 const prefix = root.prefix;
-const gpa = root.gpa;
+const gpa: std.mem.Allocator = root.gpa;
 
 var words: [26][]const []const u8 = undefined;
 
 pub fn init() !void {
-    words = try splitList(io.readFile("words.txt"));
+    const content = io.readFile("words.txt");
+    const content_owned = try gpa.dupe(u8, content);
+    errdefer gpa.free(content_owned);
+    words = try splitList(content_owned);
 }
 
 fn splitList(text: []const u8) ![26][]const []const u8 {
@@ -33,11 +36,11 @@ fn splitList(text: []const u8) ![26][]const []const u8 {
     return lists;
 }
 
-pub fn handleAcr(message: []const u8) !usize {
+pub fn handleAcr(data: *const root.MessageCreateData) !void {
     const command = prefix ++ "acr ";
-    if (!tools.startsWith(command, message)) return 0;
+    if (!std.mem.startsWith(u8, data.content, command)) return;
 
-    const acronym = message[command.len..];
+    const acronym = data.content[command.len..];
     var msg_buffer: [2000]u8 = undefined;
     var msg_length: usize = 0;
 
@@ -57,9 +60,7 @@ pub fn handleAcr(message: []const u8) !usize {
     }
 
     if (msg_length != 0) {
-        try api.pushString(msg_buffer[0..msg_length]);
-        return 1;
-    } else {
-        return 0;
+        const reply = msg_buffer[0..msg_length];
+        api.replyMessage(data.channel_id, data.id, reply);
     }
 }

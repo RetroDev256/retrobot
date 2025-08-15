@@ -55,7 +55,13 @@ pub fn build(b: *std.Build) void {
     const wasm_path = try std.fmt.allocPrint(b.allocator, "{s}/retrobot.wasm", .{b.exe_dir});
     defer b.allocator.free(wasm_path);
     const wasm_opt = b.addSystemCommand(&.{
-        "wasm-opt", "--enable-bulk-memory-opt", "-O4", wasm_path, "-o", wasm_path,
+        "wasm-opt",
+        "-O4",
+        "--enable-bulk-memory-opt",
+        "--enable-nontrapping-float-to-int",
+        wasm_path,
+        "-o",
+        wasm_path,
     });
     wasm_opt.step.dependOn(&install_wasm.step);
     b.default_step.dependOn(&wasm_opt.step);

@@ -10,7 +10,7 @@ pub const gpa = std.heap.wasm_allocator;
 pub const csprng: std.Random = .{ .ptr = undefined, .fillFn = fillFn };
 
 fn fillFn(_: *anyopaque, buf: []u8) void {
-    api.fillRandom(buf.ptr, buf.len);
+    api.fillRandom(buf);
 }
 
 // TODO: .emojis (not sure if I want to do this one)
@@ -32,85 +32,145 @@ export fn init() void {
     acr.init() catch unreachable;
 }
 
-export fn handleEventApi() void {
-    const string = api.getString();
-    io.stdout.print("string: {s}\n", .{string}) catch {};
-    io.stdout.flush() catch {};
+const GatewayPayload = struct {
+    t: ?[]const u8 = null,
+    d: std.json.Value,
+    // Some fields omitted
+};
+
+const Author = struct {
+    id: []const u8,
+    username: []const u8,
+    bot: ?bool = null,
+    // Some fields omitted
+};
+
+const ReferencedMessage = struct {
+    id: []const u8,
+    channel_id: []const u8,
+    content: []const u8,
+    author: Author,
+    // Some fields omitted
+};
+
+const MessageReference = struct {
+    message_id: ?[]const u8 = null,
+    channel_id: ?[]const u8 = null,
+    guild_id: ?[]const u8 = null,
+    // Some fields omitted
+};
+
+pub const MessageCreateData = struct {
+    id: []const u8,
+    channel_id: []const u8,
+    guild_id: ?[]const u8 = null,
+    author: Author,
+    content: []const u8,
+    mention_everyone: bool,
+    mentions: []Author,
+    referenced_message: ?ReferencedMessage = null,
+    message_reference: ?MessageReference = null,
+    // Some fields omitted
+};
+
+fn handleError(err: anytype) void {
+    switch (err) {
+        inline else => |known| {
+            io.stdout.print("Zig Error: {t}\n", .{known}) catch {};
+            io.stdout.flush() catch {};
+        },
+    }
 }
 
-// /// Parameters: one string on the string stack is the user message contents
-// /// Return: the number of strings on the stack the OP is to be replied with
-// export fn handleMessage() usize {
-//     errdefer unreachable;
-//
-//     const message = api.popString();
-//     defer gpa.free(message);
-//
-//     inline for (&.{
-//         handlePing,
-//         handleNoU,
-//         handleRand,
-//         handleShoulds,
-//         acr.handleAcr,
-//         zig_block.handleZigBlock,
-//     }) |handler| {
-//         const response = try handler(message);
-//         if (response != 0) return response;
-//     }
-//
-//     return 0;
-// }
-//
-// // respond to case-insensitive "ping" with "pong"
-// fn handlePing(message: []const u8) !usize {
-//     if (tools.insensitiveEql("ping", message)) {
-//         try api.pushString("pong");
-//         return 1;
-//     } else {
-//         return 0;
-//     }
-// }
-//
-// // respond to case-insensitive "no u" with "no u"
-// fn handleNoU(message: []const u8) !usize {
-//     if (tools.insensitiveEql("no u", message)) {
-//         try api.pushString("no u");
-//         return 1;
-//     } else {
-//         return 0;
-//     }
-// }
-//
-// // respond to case-insensitive "rand" command with random u64
-// fn handleRand(message: []const u8) !usize {
-//     if (tools.startsWith(prefix ++ "rand", message)) {
-//         var buffer: [64]u8 = undefined;
-//         var writer = std.Io.Writer.fixed(&buffer);
-//         try writer.writeAll("Here's your random u64: `0x");
-//         try writer.printInt(csprng.int(u64), 16, .upper, .{
-//             .width = 16,
-//             .fill = '0',
-//         });
-//         try writer.writeByte('`');
-//         try api.pushString(writer.buffered());
-//         return 1;
-//     } else {
-//         return 0;
-//     }
-// }
-//
-// // respond to "should i..." and "should we..." with random decision
-// fn handleShoulds(message: []const u8) !usize {
-//     const should_i = tools.startsWithInsensitive("should i", message);
-//     const should_we = tools.startsWithInsensitive("should we", message);
-//     if (should_i or should_we) {
-//         const choice = csprng.boolean();
-//         try api.pushString(if (choice) "yes" else "no");
-//         return 1;
-//     } else {
-//         return 0;
-//     }
-// }
+export fn handleEvent() void {
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+
+    const arena = arena_state.allocator();
+    const event = api.getString();
+
+    // Parse the raw event so we know what type of event we have
+    const gateway_payload = std.json.parseFromSliceLeaky(
+        GatewayPayload,
+        arena,
+        event,
+        .{
+            .ignore_unknown_fields = true,
+            .allocate = .alloc_always,
+        },
+    ) catch |err| return handleError(err);
+
+    // Some events do not have a message type
+    const event_type = gateway_payload.t orelse return;
+
+    // Handle message creation events with handleMessageCreate
+    if (std.mem.eql(u8, "MESSAGE_CREATE", event_type)) {
+        handleMessageCreate(
+            &(std.json.parseFromValueLeaky(
+                MessageCreateData,
+                arena,
+                gateway_payload.d,
+                .{ .ignore_unknown_fields = true },
+            ) catch |err| return handleError(err)),
+        ) catch |err| return handleError(err);
+    }
+
+    // io.stdout.print("EVENT: {s}\n\n", .{event}) catch {};
+    // io.stdout.flush() catch {};
+}
+
+fn handleMessageCreate(data: *const MessageCreateData) !void {
+    inline for (&.{
+        handlePing,
+        handleNoU,
+        handleRand,
+        handleShoulds,
+        acr.handleAcr,
+        zig_block.handleZigBlock,
+    }) |handler| {
+        handler(data) catch |err| handleError(err);
+    }
+}
+
+// respond to case-insensitive "ping" with "pong"
+fn handlePing(data: *const MessageCreateData) !void {
+    if (std.mem.eql(u8, "ping", data.content)) {
+        api.replyMessage(data.channel_id, data.id, "pong");
+    }
+}
+
+// respond to case-insensitive "no u" with "no u"
+fn handleNoU(data: *const MessageCreateData) !void {
+    if (tools.insensitiveEql("no u", data.content)) {
+        api.replyMessage(data.channel_id, data.id, "no");
+    }
+}
+
+// respond to case-insensitive "rand" command with random u64
+fn handleRand(data: *const MessageCreateData) !void {
+    if (std.mem.startsWith(u8, data.content, prefix ++ "rand")) {
+        var buffer: [64]u8 = undefined;
+        var writer = std.Io.Writer.fixed(&buffer);
+        try writer.writeAll("Here's your random u64: `0x");
+        try writer.printInt(csprng.int(u64), 16, .upper, .{
+            .width = 16,
+            .fill = '0',
+        });
+        try writer.writeByte('`');
+        const reply = writer.buffered();
+        api.replyMessage(data.channel_id, data.id, reply);
+    }
+}
+
+// respond to "should i..." and "should we..." with random decision
+fn handleShoulds(data: *const MessageCreateData) !void {
+    const should_i = tools.startsWithInsensitive("should i", data.content);
+    const should_we = tools.startsWithInsensitive("should we", data.content);
+    if (should_i or should_we) {
+        const reply = if (csprng.boolean()) "yes" else "no";
+        api.replyMessage(data.channel_id, data.id, reply);
+    }
+}
 
 comptime {
     _ = acr;

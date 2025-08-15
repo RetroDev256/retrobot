@@ -13,17 +13,17 @@ pub var stdout: Writer = .{
                 splat: usize,
             ) Writer.Error!usize {
                 var written: usize = w.end;
-                api.writeStdout(w.buffer.ptr, w.end);
+                api.writeStdout(w.buffer[0..w.end]);
                 w.end = 0;
 
                 for (data[0 .. data.len - 1]) |bytes| {
-                    api.writeStdout(bytes.ptr, bytes.len);
+                    api.writeStdout(bytes);
                     written += bytes.len;
                 }
 
                 const pattern = data[data.len - 1];
                 for (0..splat) |_| {
-                    api.writeStdout(pattern.ptr, pattern.len);
+                    api.writeStdout(pattern);
                 }
                 written += pattern.len * splat;
 
@@ -33,8 +33,5 @@ pub var stdout: Writer = .{
     },
 };
 
-/// Output valid while allocateMem is not called
-pub fn readFile(path: []const u8) []const u8 {
-    api.readFile(path.ptr, path.len);
-    return api.getString();
-}
+/// Output is invalidated when allocateMem is called
+pub const readFile = api.readFile;
