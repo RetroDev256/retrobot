@@ -3,6 +3,7 @@ const acr = @import("acr.zig");
 const api = @import("api.zig");
 const tools = @import("tools.zig");
 const block = @import("block.zig");
+const unwrap = tools.unwrap;
 
 pub const prefix: []const u8 = ".";
 pub const gpa = std.heap.wasm_allocator;
@@ -40,7 +41,9 @@ export fn init() bool {
 export fn messageCreate() bool {
     if (messageCreateInner()) {
         return true;
-    } else |_| return false;
+    } else |_| {
+        return false;
+    }
 }
 
 fn messageCreateInner() !void {
@@ -56,6 +59,7 @@ fn messageCreateInner() !void {
     try handleNoU(&data);
     try handlePing(&data);
     try handleRand(&data);
+    try handle4096(&data);
     try handleShoulds(&data);
     try acr.handleAcr(&data);
     try block.handleZigBlock(&data);
@@ -75,15 +79,33 @@ fn handlePing(data: *const api.Message) !void {
 
 // respond to case-insensitive "rand" command with random u64
 fn handleRand(data: *const api.Message) !void {
-    if (!std.mem.startsWith(u8, data.content, prefix ++ "rand")) return;
+    if (!std.mem.eql(u8, data.content, prefix ++ "rand")) return;
 
-    var buffer: [64]u8 = undefined;
+    var buffer: [44]u8 = undefined;
     var writer = std.Io.Writer.fixed(&buffer);
 
-    try writer.writeAll("Here's your random u64: `0x");
+    unwrap(writer.writeAll("Here's your random u64: `0x"));
     const opts: std.fmt.Options = .{ .width = 16, .fill = '0' };
-    try writer.printInt(csprng.int(u64), 16, .upper, opts);
-    try writer.writeByte('`');
+    unwrap(writer.printInt(csprng.int(u64), 16, .upper, opts));
+    unwrap(writer.writeByte('`'));
+
+    api.replyMessage(data.channel_id, data.message_id, writer.buffered());
+}
+
+// respond to "4096" command with random u4096
+fn handle4096(data: *const api.Message) !void {
+    if (!std.mem.eql(u8, data.content, prefix ++ "4096")) return;
+
+    var buffer: [1118]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buffer);
+
+    unwrap(writer.writeAll("Here's your random u4096:```"));
+    for (0..64) |index| {
+        if (index != 0) unwrap(writer.writeByte(' '));
+        const opts: std.fmt.Options = .{ .width = 16, .fill = '0' };
+        unwrap(writer.printInt(csprng.int(u64), 16, .upper, opts));
+    }
+    unwrap(writer.writeAll("```"));
 
     api.replyMessage(data.channel_id, data.message_id, writer.buffered());
 }
