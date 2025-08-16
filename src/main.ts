@@ -31,15 +31,6 @@ type MessageApi = {
     is_bot: boolean;
 };
 
-type ReactionApi = {
-    channel_id: string;
-    message_id: string;
-    author_id: string;
-    content: string;
-    user_id: string;
-    emoji: string | null;
-};
-
 const wasm_env = {
     memory: memory,
     readFileApi: (path_ptr: number, path_len: number): boolean => {
@@ -134,29 +125,6 @@ const wasm_env = {
             }
         })();
     },
-    reactMessageApi: (
-        channel_id_ptr: number,
-        channel_id_len: number,
-        message_id_ptr: number,
-        message_id_len: number,
-        reaction_ptr: number,
-        reaction_len: number
-    ): void => {
-        (async () => {
-            try {
-                const channel_id = readString(channel_id_ptr, channel_id_len);
-                const message_id = readString(message_id_ptr, message_id_len);
-                const reaction = readString(reaction_ptr, reaction_len);
-
-                const channel = await client.channels.fetch(channel_id);
-                if (!channel || !("messages" in channel)) return;
-                const message = await channel.messages.fetch(message_id);
-                await message.react(reaction);
-            } catch (err) {
-                console.log("TypeScript Error: " + String(err));
-            }
-        })();
-    },
 };
 
 const buffer = fs.readFileSync("retrobot.wasm");
@@ -166,7 +134,6 @@ const exports = instance.exports;
 
 const allocateMem = exports["allocateMem"] as (len: number) => number;
 const messageCreate = exports["messageCreate"] as () => boolean;
-const reactionAdd = exports["reactionAdd"] as () => boolean;
 const init = exports["init"] as () => boolean;
 
 client.once("ready", (client) => {
@@ -193,28 +160,9 @@ client.on("messageCreate", (message) => {
                 is_bot: message.author.bot,
             } as MessageApi)
         );
-        if (!messageCreate()) throw new Error("WASM messageCreate error");
-    } catch (err) {
-        console.log("TypeScript Error: " + String(err));
-    }
-});
-
-client.on("messageReactionAdd", async (reaction, user) => {
-    try {
-        // ensure op_author_id & op_content are non-null
-        if (reaction.partial) await reaction.fetch();
-
-        pushString(
-            JSON.stringify({
-                channel_id: reaction.message.channelId,
-                message_id: reaction.message.id,
-                author_id: reaction.message.author?.id,
-                content: reaction.message.content,
-                user_id: user.id,
-                emoji: reaction.emoji.name,
-            } as ReactionApi)
-        );
-        if (!reactionAdd()) throw new Error("WASM reactionAdd error");
+        if (!messageCreate()) {
+            console.log("WASM Error: messageCreate returned with error");
+        }
     } catch (err) {
         console.log("TypeScript Error: " + String(err));
     }

@@ -1,22 +1,17 @@
 const std = @import("std");
 const api = @import("api.zig");
 const tools = @import("tools.zig");
-const root = @import("root");
 const Writer = std.Io.Writer;
-const assert = std.debug.assert;
 const unwrap = tools.unwrap;
 
 const block_zig = "```zig\n";
 const block_ansi = "```ansi\n";
-const block_ts = "```ts\n";
 const block_end = "```";
 
-const max_blocks = 3;
-
 /// Creates up to max_blocks highlighted zig code blocks
-pub fn createZigBlocks(data: *const api.Message) !void {
+pub fn handleZigBlock(data: *const api.Message) !void {
     var index: usize = 0;
-    for (0..max_blocks) |_| {
+    while (true) {
         // Locate the next zig block and advance our index
         const tag = std.mem.indexOfPos(u8, data.content, index, block_zig);
         const block = (tag orelse break) + block_zig.len;
@@ -28,38 +23,6 @@ pub fn createZigBlocks(data: *const api.Message) !void {
         var buffer: [2000]u8 = undefined;
         const ansi = try zigToAnsi(zig_code, &buffer);
         api.replyMessage(data.channel_id, data.message_id, ansi);
-    }
-}
-
-/// Adds recycle reaction onto newly created highlighted zig code blocks
-pub fn callbackReactZigBlock(data: *const api.Message) !void {
-    if (!std.mem.eql(u8, data.author_id, root.bot_id)) return;
-    if (!std.mem.startsWith(u8, data.content, block_ansi)) return;
-    api.reactMessage(data.channel_id, data.message_id, "♻️");
-}
-
-/// Recycling emoji effect on highlighted blocks (swaps between zig and ts)
-pub fn recycleEmojiZigBlock(data: *const api.Reaction) !void {
-    if (std.mem.eql(u8, data.user_id, root.bot_id)) return;
-    const emoji_name = data.emoji orelse return;
-    if (!std.mem.eql(u8, emoji_name, "♻️")) return;
-
-    if (std.mem.eql(u8, data.author_id, root.bot_id)) {
-        if (std.mem.startsWith(u8, data.content, block_ansi)) {
-            // Convert the ansi block to typescript
-            const clip_front = data.content[block_ansi.len..];
-            const block_length = clip_front.len - block_end.len;
-            var buffer: [2000]u8 = undefined;
-            const ts = ansiToTs(clip_front[0..block_length], &buffer);
-            api.editMessage(data.channel_id, data.message_id, ts);
-        } else if (std.mem.startsWith(u8, data.content, block_ts)) {
-            // Convert the typescript block to ansi
-            const clip_front = data.content[block_ts.len..];
-            const block_length = clip_front.len - block_end.len;
-            var buffer: [2000]u8 = undefined;
-            const ansi = try zigToAnsi(clip_front[0..block_length], &buffer);
-            api.editMessage(data.channel_id, data.message_id, ansi);
-        }
     }
 }
 
@@ -88,41 +51,10 @@ const Color = enum {
     }
 };
 
-/// Filters out ansi escape sequences "\x1b[31m" to "\x1b[37m",
-/// returning the result as a typescript code block ("```ts\n")
-fn ansiToTs(code: []const u8, buffer: *[2000]u8) []const u8 {
-    var writer: std.Io.Writer = .fixed(buffer);
-    unwrap(writer.writeAll(block_ts));
-
-    var index: usize = 0;
-    scan: while (std.mem.indexOfScalarPos(u8, code, index, '\x1b')) |next| {
-        unwrap(writer.writeAll(code[index..next]));
-        index += next - index;
-
-        if (code.len - index >= 5) match: {
-            assert(code[index + 0] == '\x1b');
-            if (code[index + 1] != '[') break :match;
-            if (code[index + 2] != '3') break :match;
-            if (code[index + 3] < '0') break :match;
-            if (code[index + 3] > '7') break :match;
-            if (code[index + 4] != 'm') break :match;
-            index = index + 5;
-            continue :scan;
-        }
-
-        unwrap(writer.writeByte(code[next]));
-        index += 1;
-    }
-
-    unwrap(writer.writeAll(code[index..]));
-    unwrap(writer.writeAll(block_end));
-    return writer.buffered();
-}
-
 /// Parses zig code and colors the result with ansi escape sequences
 fn zigToAnsi(zig_code: []const u8, buffer: *[2000]u8) ![]const u8 {
     // This null delimiter simplifies our parser.
-    assert(zig_code.len < 2000);
+    std.debug.assert(zig_code.len < 2000);
     var delimited: [2000]u8 = undefined;
     @memcpy(&delimited, zig_code);
     delimited[zig_code.len] = 0;
@@ -147,7 +79,7 @@ fn zigToAnsi(zig_code: []const u8, buffer: *[2000]u8) ![]const u8 {
                 '0'...'9' => continue :fsa 8,
                 'a'...'z', '_' => continue :fsa 5,
                 ' ', '\n', '\t', '\r' => {
-                    const byte = tools.unwrap(reader.takeByte());
+                    const byte = unwrap(reader.takeByte());
                     try writer.writeByte(byte);
                     continue :fsa 0;
                 },
@@ -225,7 +157,7 @@ fn zigToAnsi(zig_code: []const u8, buffer: *[2000]u8) ![]const u8 {
         },
 
         3 => { // COMMENT
-            if (unwrap(reader.peek(2))[2] != '/') {
+            if (unwrap(reader.peek(2))[1] != '/') {
                 const byte = unwrap(reader.takeByte());
                 try writer.writeByte(byte);
             } else {

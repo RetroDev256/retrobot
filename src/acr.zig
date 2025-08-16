@@ -1,5 +1,4 @@
 const std = @import("std");
-const assert = std.debug.assert;
 const api = @import("api.zig");
 const tools = @import("tools.zig");
 const root = @import("root");
@@ -16,9 +15,9 @@ pub fn init() !void {
 fn splitList(text: []const u8) !void {
     var start: usize = 0;
     while (std.mem.indexOfScalarPos(u8, text, start, '\n')) |index| {
-        assert(index - start > 0);
+        const letter = text[start] -% 'a';
         const line = text[start..index];
-        try word_lists[line[0]].append(root.gpa, line);
+        try word_lists[letter].append(root.gpa, line);
         start = index + 1;
     }
 }

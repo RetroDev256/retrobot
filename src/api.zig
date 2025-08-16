@@ -87,30 +87,6 @@ pub fn deleteMessage(
     );
 }
 
-extern fn reactMessageApi(
-    channel_id_ptr: [*]const u8,
-    channel_id_len: usize,
-    message_id_ptr: [*]const u8,
-    message_id_len: usize,
-    reaction_ptr: [*]const u8,
-    reaction_len: usize,
-) void;
-
-pub fn reactMessage(
-    channel_id: []const u8,
-    message_id: []const u8,
-    reaction: []const u8,
-) void {
-    reactMessageApi(
-        channel_id.ptr,
-        channel_id.len,
-        message_id.ptr,
-        message_id.len,
-        reaction.ptr,
-        reaction.len,
-    );
-}
-
 var string_stack: std.ArrayList([]const u8) = .empty;
 
 /// For setting string parameters from TypeScript
@@ -133,20 +109,6 @@ pub const Message = struct {
     author_id: []const u8,
     content: []const u8,
     is_bot: bool,
-
-    pub fn parse(arena: Allocator, json: []const u8) !@This() {
-        const opts: std.json.ParseOptions = .{ .allocate = .alloc_always };
-        return try std.json.parseFromSliceLeaky(@This(), arena, json, opts);
-    }
-};
-
-pub const Reaction = struct {
-    channel_id: []const u8,
-    message_id: []const u8,
-    author_id: []const u8,
-    content: []const u8,
-    user_id: []const u8,
-    emoji: ?[]const u8,
 
     pub fn parse(arena: Allocator, json: []const u8) !@This() {
         const opts: std.json.ParseOptions = .{ .allocate = .alloc_always };
