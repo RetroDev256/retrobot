@@ -1,8 +1,10 @@
 const std = @import("std");
-const io = @import("io.zig");
 const api = @import("api.zig");
 const tools = @import("tools.zig");
 const root = @import("root");
+const Writer = std.Io.Writer;
+const assert = std.debug.assert;
+const unwrap = tools.unwrap;
 
 const block_zig = "```zig\n";
 const block_ansi = "```ansi\n";
@@ -48,7 +50,7 @@ pub fn recycleEmojiZigBlock(data: *const api.Reaction) !void {
             const clip_front = data.content[block_ansi.len..];
             const block_length = clip_front.len - block_end.len;
             var buffer: [2000]u8 = undefined;
-            const ts = try ansiToTs(clip_front[0..block_length], &buffer);
+            const ts = ansiToTs(clip_front[0..block_length], &buffer);
             api.editMessage(data.channel_id, data.message_id, ts);
         } else if (std.mem.startsWith(u8, data.content, block_ts)) {
             // Convert the typescript block to ansi
@@ -62,226 +64,211 @@ pub fn recycleEmojiZigBlock(data: *const api.Reaction) !void {
 }
 
 const Color = enum {
-    gray,
-    red,
-    green,
-    yellow,
-    blue,
-    magenta,
-    cyan,
-    white,
+    comments, // gray
+    literals, // red
+    types, // green
+    builtins, // yellow
+    functions, // blue
+    keywords, // magenta
+    identifiers, // cyan
+    otherwise, // white
 
-    const comments: Color = .gray;
-    const builtins: Color = .yellow;
-    const dot_literals: Color = .cyan;
-    const functions: Color = .blue;
-    const literals: Color = .red;
-    const keywords: Color = .magenta;
-    const types: Color = .green;
-    const identifiers: Color = .cyan;
-    const otherwise: Color = .white;
-
-    fn code(self: Color) []const u8 {
-        return switch (self) {
-            .gray => "\x1b[30m",
-            .red => "\x1b[31m",
-            .green => "\x1b[32m",
-            .yellow => "\x1b[33m",
-            .blue => "\x1b[34m",
-            .magenta => "\x1b[35m",
-            .cyan => "\x1b[36m",
-            .white => "\x1b[37m",
-        };
+    fn update(old: *Color, new: Color, writer: *Writer) !void {
+        if (old.* != new) old.* = new else return;
+        try writer.writeAll(switch (new) {
+            .comments => "\x1b[30m",
+            .literals => "\x1b[31m",
+            .types => "\x1b[32m",
+            .builtins => "\x1b[33m",
+            .functions => "\x1b[34m",
+            .keywords => "\x1b[35m",
+            .identifiers => "\x1b[36m",
+            .otherwise => "\x1b[37m",
+        });
     }
 };
 
 /// Filters out ansi escape sequences "\x1b[31m" to "\x1b[37m",
 /// returning the result as a typescript code block ("```ts\n")
-fn ansiToTs(code: []const u8, buffer: *[2000]u8) ![]const u8 {
+fn ansiToTs(code: []const u8, buffer: *[2000]u8) []const u8 {
     var writer: std.Io.Writer = .fixed(buffer);
-    try writer.writeAll(block_ts);
+    unwrap(writer.writeAll(block_ts));
 
     var index: usize = 0;
     scan: while (std.mem.indexOfScalarPos(u8, code, index, '\x1b')) |next| {
-        try writer.writeAll(code[index..next]);
+        unwrap(writer.writeAll(code[index..next]));
         index += next - index;
 
-        inline for (@typeInfo(Color).@"enum".fields) |field| {
-            const value: Color = @enumFromInt(field.value);
-            if (std.mem.startsWith(u8, code[next..], value.code())) {
-                index += value.code().len;
-                continue :scan;
-            }
+        if (code.len - index >= 5) match: {
+            assert(code[index + 0] == '\x1b');
+            if (code[index + 1] != '[') break :match;
+            if (code[index + 2] != '3') break :match;
+            if (code[index + 3] < '0') break :match;
+            if (code[index + 3] > '7') break :match;
+            if (code[index + 4] != 'm') break :match;
+            index = index + 5;
+            continue :scan;
         }
 
-        try writer.writeByte(code[next]);
+        unwrap(writer.writeByte(code[next]));
         index += 1;
     }
 
-    try writer.writeAll(code[index..]);
-    try writer.writeAll(block_end);
+    unwrap(writer.writeAll(code[index..]));
+    unwrap(writer.writeAll(block_end));
     return writer.buffered();
 }
-
-// Tokenizer state for parsing zig
-const State = enum {
-    start,
-    string,
-    char,
-    comment,
-    type,
-    identifier,
-    builtin,
-    string_literal,
-    number,
-    dot_literal,
-    other,
-};
 
 /// Parses zig code and colors the result with ansi escape sequences
 fn zigToAnsi(zig_code: []const u8, buffer: *[2000]u8) ![]const u8 {
     // This null delimiter simplifies our parser.
-    var delimited_code: [2000]u8 = undefined;
-    @memcpy(&delimited_code, zig_code);
-    delimited_code[zig_code.len] = 0;
+    assert(zig_code.len < 2000);
+    var delimited: [2000]u8 = undefined;
+    @memcpy(&delimited, zig_code);
+    delimited[zig_code.len] = 0;
+    const source_len = zig_code.len + 1;
+    const source = delimited[0..source_len];
 
-    var color: Color = .white;
-    var reader: std.Io.Reader = .fixed(&delimited_code);
+    var color: Color = .otherwise;
+    var reader: std.Io.Reader = .fixed(source);
     var writer: std.Io.Writer = .fixed(buffer);
-    try writer.writeAll(block_ansi);
+    unwrap(writer.writeAll(block_ansi));
 
-    fsa: switch (@as(State, .start)) {
-        // initial state - no tokens seen yet.
-        .start => switch (try reader.peekByte()) {
-            0 => break :fsa, // we reached eof
-            ' ', '\n', '\t', '\r' => {
-                try writer.writeByte(try reader.takeByte());
-                switch (try reader.peekByte()) {
-                    '.' => continue :fsa .dot_literal,
-                    else => continue :fsa .start,
-                }
-            },
-            '"' => continue :fsa .string,
-            '\'' => continue :fsa .char,
-            '/' => continue :fsa .comment,
-            'A'...'Z' => continue :fsa .type,
-            'a'...'z', '_' => continue :fsa .identifier,
-            '@' => continue :fsa .builtin,
-            '\\' => continue :fsa .string_literal,
-            '0'...'9' => continue :fsa .number,
-            '=', '!', '|', '(', ')', '[', ']', ';' => continue :fsa .other,
-            ',', '?', ':', '%', '*', '+', '<', '>' => continue :fsa .other,
-            '^', '{', '}', '~', '.', '-', '&' => continue :fsa .other,
-            else => {
-                // we don't know what the token is right now
-                _ = try reader.streamDelimiterEnding(&writer, '\n');
-                continue :fsa .start;
-            },
-        },
-        // we've seen the '"' byte, starting a string
-        .string => {
-            // Update the color if it needs to be changed
-            if (color != Color.literals) {
-                color = Color.literals;
-                try writer.writeAll(color.code());
-            }
-
-            try writer.writeByte(try reader.takeByte());
-            while (true) {
-                switch (try reader.peekByte()) {
-                    0 => break :fsa, // we reached eof
-                    '\\' => {
-                        try writer.writeAll(try reader.take(2));
-                    },
-                    '"' => {
-                        try writer.writeByte(try reader.takeByte());
-                        continue :fsa .start;
-                    },
-                    else => {
-                        try writer.writeByte(try reader.takeByte());
-                    },
-                }
-            }
-        },
-        // we've seen the '\'' byte, starting a character
-        .char => {
-            // Update the color if it needs to be changed
-            if (color != Color.literals) {
-                color = Color.literals;
-                try writer.writeAll(color.code());
-            }
-
-            try writer.writeByte(try reader.takeByte());
-            while (true) {
-                switch (try reader.peekByte()) {
-                    0 => break :fsa, // we reached eof
-                    '\\' => {
-                        try writer.writeAll(try reader.take(2));
-                    },
-                    '\'' => {
-                        try writer.writeByte(try reader.takeByte());
-                        continue :fsa .start;
-                    },
-                    else => {
-                        try writer.writeByte(try reader.takeByte());
-                    },
-                }
-            }
-        },
-        // we've seen '/', potentially starting a comment
-        .comment => {
-            // Handling the two cases in which '/' is not a comment:
-            if ((try reader.peek(2))[1] != '/') {
-                try writer.writeByte(try reader.takeByte());
-                continue :fsa .start;
-            }
-
-            // Update the color if it needs to be changed
-            if (color != Color.comments) {
-                color = Color.comments;
-                try writer.writeAll(color.code());
-            }
-            _ = try reader.streamDelimiterEnding(&writer, '\n');
-            continue :fsa .start;
-        },
-        // we've seen an uppercase letter, starting a type
-        .type => {
-            // Update the color if it needs to be changed
-            if (color != Color.types) {
-                color = Color.types;
-                try writer.writeAll(color.code());
-            }
-
-            while (true) {
-                switch (try reader.peekByte()) {
-                    0 => break :fsa, // we reached eof
-                    'a'...'z', 'A'...'Z', '_', '0'...'9' => {
-                        try writer.writeByte(try reader.takeByte());
-                    },
-                    else => continue :fsa .start,
-                }
-            }
-        },
-        // we've seen 'a'...'z' or '_', starting an identifier
-        .identifier => {
-            // Find the length of the identifier, and if it is a function
-            var is_function: bool = false;
-            const length: usize = scan: {
-                for (reader.buffered(), 0..) |byte, index| {
-                    switch (byte) {
-                        'a'...'z', '_', '0'...'9' => {},
-                        'A'...'Z' => is_function = true,
-                        '(' => {
-                            is_function = true;
-                            break :scan index;
+    fsa: switch (@as(u32, 0)) {
+        0 => { // START
+            switch (unwrap(reader.peekByte())) {
+                0 => break :fsa, // we reached eof
+                '"' => continue :fsa 1,
+                '@' => continue :fsa 6,
+                '/' => continue :fsa 3,
+                '\'' => continue :fsa 2,
+                '\\' => continue :fsa 7,
+                'A'...'Z' => continue :fsa 4,
+                '0'...'9' => continue :fsa 8,
+                'a'...'z', '_' => continue :fsa 5,
+                ' ', '\n', '\t', '\r' => {
+                    const byte = tools.unwrap(reader.takeByte());
+                    try writer.writeByte(byte);
+                    continue :fsa 0;
+                },
+                '=', '!', '|', '(', ')', '[', ']' => continue :fsa 9,
+                ';', ',', '?', ':', '%', '*', '+', '<' => continue :fsa 9,
+                '>', '^', '{', '}', '~', '.', '-', '&' => continue :fsa 9,
+                else => {
+                    while (true) switch (unwrap(reader.peekByte())) {
+                        0, '\n' => continue :fsa 0,
+                        else => {
+                            const byte = unwrap(reader.takeByte());
+                            try writer.writeByte(byte);
                         },
-                        else => break :scan index,
-                    }
-                }
-                break :scan reader.bufferedLen();
-            };
+                    };
+                },
+            }
+        },
 
-            const identifier = try reader.take(length);
+        1 => { // STRING LITERAL
+            try color.update(.literals, &writer);
+            const quote = unwrap(reader.takeByte());
+            try writer.writeByte(quote);
+            while (true) switch (unwrap(reader.peekByte())) {
+                0 => break :fsa, // we reached eof
+                '\\' => {
+                    const escape = unwrap(reader.takeByte());
+                    try writer.writeByte(escape);
+                    switch (unwrap(reader.peekByte())) {
+                        0 => break :fsa, // we reached eof
+                        else => {
+                            const byte = unwrap(reader.takeByte());
+                            try writer.writeByte(byte);
+                        },
+                    }
+                },
+                '\"' => {
+                    const byte = unwrap(reader.takeByte());
+                    try writer.writeByte(byte);
+                    continue :fsa 0;
+                },
+                else => {
+                    const byte = unwrap(reader.takeByte());
+                    try writer.writeByte(byte);
+                },
+            };
+        },
+
+        2 => { // CHAR LITERAL
+            try color.update(.literals, &writer);
+            const quote = unwrap(reader.takeByte());
+            try writer.writeByte(quote);
+            while (true) switch (unwrap(reader.peekByte())) {
+                0 => break :fsa, // we reached eof
+                '\\' => {
+                    const escape = unwrap(reader.takeByte());
+                    try writer.writeByte(escape);
+                    switch (unwrap(reader.peekByte())) {
+                        0 => break :fsa, // we reached eof
+                        else => {
+                            const byte = unwrap(reader.takeByte());
+                            try writer.writeByte(byte);
+                        },
+                    }
+                },
+                '\'' => {
+                    const byte = unwrap(reader.takeByte());
+                    try writer.writeByte(byte);
+                    continue :fsa 0;
+                },
+                else => {
+                    const byte = unwrap(reader.takeByte());
+                    try writer.writeByte(byte);
+                },
+            };
+        },
+
+        3 => { // COMMENT
+            if (unwrap(reader.peek(2))[2] != '/') {
+                const byte = unwrap(reader.takeByte());
+                try writer.writeByte(byte);
+            } else {
+                try color.update(.comments, &writer);
+                // TODO: how does this interact with the delimiting 0?
+                _ = try reader.streamDelimiterEnding(&writer, '\n');
+            }
+
+            continue :fsa 0;
+        },
+
+        4 => { // TYPE
+            try color.update(.types, &writer);
+            while (true) switch (unwrap(reader.peekByte())) {
+                'a'...'z', 'A'...'Z', '_', '0'...'9' => {
+                    const byte = unwrap(reader.takeByte());
+                    try writer.writeByte(byte);
+                },
+                else => continue :fsa 0,
+            };
+        },
+
+        5 => { // IDENTIFIER
+            var is_function: bool = false;
+            var length: usize = reader.bufferedLen();
+
+            for (0..reader.bufferedLen()) |index| {
+                switch (reader.buffered()[index]) {
+                    'a'...'z', '_', '0'...'9' => {},
+                    'A'...'Z' => is_function = true,
+                    '(' => {
+                        is_function = true;
+                        length = index;
+                        break;
+                    },
+                    else => {
+                        length = index;
+                        break;
+                    },
+                }
+            }
+
+            const identifier = unwrap(reader.take(length));
 
             const new_color: Color = determine: {
                 if (isKeyword(identifier)) break :determine Color.keywords;
@@ -291,102 +278,60 @@ fn zigToAnsi(zig_code: []const u8, buffer: *[2000]u8) ![]const u8 {
                 break :determine Color.identifiers;
             };
 
-            // Update the color if it needs to be changed
-            if (color != new_color) {
-                color = new_color;
-                try writer.writeAll(color.code());
-            }
-
-            // Flush the identifier & continue
+            try color.update(new_color, &writer);
             try writer.writeAll(identifier);
-            continue :fsa .start;
+            continue :fsa 0;
         },
-        // we've seen @, starting a builtin - we don't care about identifiers
-        .builtin => {
-            // Update the color if it needs to be changed
-            if (color != Color.builtins) {
-                color = Color.builtins;
-                try writer.writeAll(color.code());
+
+        6 => { // BUILTIN
+            try color.update(.builtins, &writer);
+            const at_sign = unwrap(reader.takeByte());
+            try writer.writeByte(at_sign);
+            while (true) switch (unwrap(reader.peekByte())) {
+                'a'...'z', 'A'...'Z', '_', '0'...'9' => {
+                    const byte = unwrap(reader.takeByte());
+                    try writer.writeByte(byte);
+                },
+                else => continue :fsa 0,
+            };
+        },
+
+        7 => { // MULTILINE STRING LITERAL
+            if (unwrap(reader.peek(2))[1] != '\\') {
+                const byte = unwrap(reader.takeByte());
+                try writer.writeByte(byte);
+                continue :fsa 0;
             }
 
-            try writer.writeByte(try reader.takeByte());
-            while (true) {
-                switch (try reader.peekByte()) {
-                    'a'...'z', 'A'...'Z', '_', '0'...'9' => {
-                        try writer.writeByte(try reader.takeByte());
-                    },
-                    else => continue :fsa .start,
-                }
-            }
+            try color.update(.literals, &writer);
+            while (true) switch (unwrap(reader.peekByte())) {
+                0, '\n' => continue :fsa 0,
+                else => {
+                    const byte = unwrap(reader.takeByte());
+                    try writer.writeByte(byte);
+                },
+            };
         },
-        // we've seen '\\', potentially starting a string literal
-        .string_literal => {
-            // Handling the two cases in which '\' is not a comment:
-            if ((try reader.peek(2))[1] != '\\') {
-                try writer.writeByte(try reader.takeByte());
-                continue :fsa .start;
-            }
 
-            // Update the color if it needs to be changed
-            if (color != Color.literals) {
-                color = Color.literals;
-                try writer.writeAll(color.code());
-            }
-            _ = try reader.streamDelimiterEnding(&writer, '\n');
-            continue :fsa .start;
+        8 => { // NUMBER
+            try color.update(.literals, &writer);
+            while (true) switch (unwrap(reader.peekByte())) {
+                '0'...'9', 'A'...'F', 'a'...'f', '.', 'x', 'o', '_' => {
+                    const byte = unwrap(reader.takeByte());
+                    try writer.writeByte(byte);
+                },
+                else => continue :fsa 0,
+            };
         },
-        // we've seen '0'...'9', starting a number
-        .number => {
-            // Update the color if it needs to be changed
-            if (color != Color.literals) {
-                color = Color.literals;
-                try writer.writeAll(color.code());
-            }
 
-            while (true) {
-                switch (try reader.peekByte()) {
-                    '0'...'9', 'A'...'F', 'a'...'f', '.', 'x', 'o', '_' => {
-                        try writer.writeByte(try reader.takeByte());
-                    },
-                    else => continue :fsa .start,
-                }
-            }
+        9 => { // OTHERWISE
+            try color.update(.otherwise, &writer);
+            const byte = unwrap(reader.takeByte());
+            try writer.writeByte(byte);
+            continue :fsa 0;
         },
-        // we've seen " .", possibly starting a dot literal
-        .dot_literal => {
-            // Handle the case in which we don't have a literal
-            switch ((try reader.peek(2))[1]) {
-                'a'...'z', 'A'...'Z', '_' => {},
-                else => continue :fsa .start,
-            }
 
-            // Update the color if it needs to be changed
-            if (color != Color.dot_literals) {
-                color = Color.dot_literals;
-                try writer.writeAll(color.code());
-            }
-
-            try writer.writeAll(try reader.take(2));
-            while (true) {
-                switch (try reader.peekByte()) {
-                    'a'...'z', 'A'...'Z', '_', '0'...'9' => {
-                        try writer.writeByte(try reader.takeByte());
-                    },
-                    else => continue :fsa .start,
-                }
-            }
-        },
-        // we just need to chew through these other symbols
-        .other => {
-            // Update the color if it needs to be changed
-            if (color != Color.otherwise) {
-                color = Color.otherwise;
-                try writer.writeAll(color.code());
-            }
-
-            try writer.writeByte(try reader.takeByte());
-            continue :fsa .start;
-        },
+        else => unreachable,
     }
 
     try writer.writeAll(block_end);
@@ -394,13 +339,10 @@ fn zigToAnsi(zig_code: []const u8, buffer: *[2000]u8) ![]const u8 {
 }
 
 const primitives: []const []const u8 = &.{
-    "anyerror",    "anyframe", "anyopaque",      "bool",
-    "c_int",       "c_long",   "c_longdouble",   "c_longlong",
-    "c_char",      "c_short",  "c_uint",         "c_ulong",
-    "c_ulonglong", "c_ushort", "comptime_float", "comptime_int",
-    "f128",        "f16",      "f32",            "f64",
-    "f80",         "isize",    "noreturn",       "type",
-    "usize",       "void",
+    "anyerror",       "anyframe",     "anyopaque", "bool",
+    "comptime_float", "comptime_int", "f128",      "f16",
+    "f32",            "f64",          "f80",       "isize",
+    "noreturn",       "type",         "usize",     "void",
 };
 
 fn isPrimitive(name: []const u8) bool {
@@ -412,13 +354,9 @@ fn isPrimitive(name: []const u8) bool {
 
     if (name.len < 2) {
         return false;
-    }
-
-    if (name[0] != 'i' and name[0] != 'u') {
+    } else if (name[0] != 'i' and name[0] != 'u') {
         return false;
-    }
-
-    for (name[1..]) |c| {
+    } else for (name[1..]) |c| {
         if (!tools.isDigit(c)) {
             return false;
         }

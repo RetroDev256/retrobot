@@ -10,14 +10,14 @@ pub fn readFile(path: []const u8) ![]const u8 {
     return try popString();
 }
 
-extern fn writeStdoutApi(out_ptr: [*]const u8, out_len: usize) bool;
-pub fn writeStdout(out: []const u8) !void {
-    if (!writeStdoutApi(out.ptr, out.len)) return error.TypeScriptError;
+extern fn writeStdoutApi(out_ptr: [*]const u8, out_len: usize) void;
+pub fn writeStdout(out: []const u8) void {
+    writeStdoutApi(out.ptr, out.len);
 }
 
-extern fn fillRandomApi(dest_ptr: [*]u8, dest_len: usize) bool;
-pub fn fillRandom(dest: []u8) !void {
-    if (!fillRandomApi(dest.ptr, dest.len)) return error.TypeScriptError;
+extern fn fillRandomApi(dest_ptr: [*]u8, dest_len: usize) void;
+pub fn fillRandom(dest: []u8) void {
+    fillRandomApi(dest.ptr, dest.len);
 }
 
 extern fn replyMessageApi(
@@ -111,54 +111,6 @@ pub fn reactMessage(
     );
 }
 
-extern fn fetchReferenceApi(
-    channel_id_ptr: [*]const u8,
-    channel_id_len: usize,
-    message_id_ptr: [*]const u8,
-    message_id_len: usize,
-    callback_ptr: [*]const u8,
-    callback_len: usize,
-) void;
-
-pub fn fetchReference(
-    channel_id: []const u8,
-    message_id: []const u8,
-    callback: []const u8,
-) void {
-    fetchReferenceApi(
-        channel_id.ptr,
-        channel_id.len,
-        message_id.ptr,
-        message_id.len,
-        callback.ptr,
-        callback.len,
-    );
-}
-
-extern fn fetchPermissionsApi(
-    channel_id_ptr: [*]const u8,
-    channel_id_len: usize,
-    user_id_ptr: [*]const u8,
-    user_id_len: usize,
-    callback_ptr: [*]const u8,
-    callback_len: usize,
-) void;
-
-pub fn fetchPermissions(
-    channel_id: []const u8,
-    user_id: []const u8,
-    callback: []const u8,
-) void {
-    fetchPermissionsApi(
-        channel_id.ptr,
-        channel_id.len,
-        user_id.ptr,
-        user_id.len,
-        callback.ptr,
-        callback.len,
-    );
-}
-
 var string_stack: std.ArrayList([]const u8) = .empty;
 
 /// For setting string parameters from TypeScript
@@ -167,11 +119,6 @@ export fn allocateMem(len: usize) ?[*]u8 {
     const str = gpa.alloc(u8, len) catch return null;
     string_stack.appendAssumeCapacity(str);
     return str.ptr;
-}
-
-// For injecting callback parameters in Zig
-pub fn pushString(owned: []const u8) !void {
-    try string_stack.append(gpa, owned);
 }
 
 /// For accessing string parameters in Zig
@@ -200,33 +147,6 @@ pub const Reaction = struct {
     content: []const u8,
     user_id: []const u8,
     emoji: ?[]const u8,
-
-    pub fn parse(arena: Allocator, json: []const u8) !@This() {
-        const opts: std.json.ParseOptions = .{ .allocate = .alloc_always };
-        return try std.json.parseFromSliceLeaky(@This(), arena, json, opts);
-    }
-};
-
-pub const Permissions = struct {
-    manages_messages: bool,
-
-    pub fn parse(arena: Allocator, json: []const u8) !@This() {
-        const opts: std.json.ParseOptions = .{ .allocate = .alloc_always };
-        return try std.json.parseFromSliceLeaky(@This(), arena, json, opts);
-    }
-};
-
-pub const FetchReference = struct {
-    message: ?Message,
-
-    pub fn parse(arena: Allocator, json: []const u8) !@This() {
-        const opts: std.json.ParseOptions = .{ .allocate = .alloc_always };
-        return try std.json.parseFromSliceLeaky(@This(), arena, json, opts);
-    }
-};
-
-pub const FetchPermission = struct {
-    permissions: ?Permissions,
 
     pub fn parse(arena: Allocator, json: []const u8) !@This() {
         const opts: std.json.ParseOptions = .{ .allocate = .alloc_always };

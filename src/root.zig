@@ -1,33 +1,17 @@
 const std = @import("std");
 const acr = @import("acr.zig");
 const api = @import("api.zig");
-const io = @import("io.zig");
 const tools = @import("tools.zig");
 const block = @import("block.zig");
 
-pub const bot_id: []const u8 = "814437814111830027";
 pub const prefix: []const u8 = ".";
 pub const gpa = std.heap.wasm_allocator;
+pub const bot_id: []const u8 = "814437814111830027";
 pub const csprng: std.Random = .{ .ptr = undefined, .fillFn = fillFn };
 
 // this is a test comment
 fn fillFn(_: *anyopaque, buf: []u8) void {
-    api.fillRandom(buf) catch |err| {
-        handle(err, @src());
-        @trap();
-    };
-}
-
-pub fn handle(err: anytype, src: std.builtin.SourceLocation) void {
-    switch (err) {
-        inline else => |known| {
-            io.stdout.print(
-                "Zig Error: {t} in {s} at {}:{}\n",
-                .{ known, src.file, src.line, src.column },
-            ) catch {};
-            io.stdout.flush() catch {};
-        },
-    }
+    api.fillRandom(buf);
 }
 
 // TODO: .emojis (not sure if I want to do this one)
@@ -53,8 +37,10 @@ export fn init() bool {
     }
 }
 
-export fn messageCreate() void {
-    messageCreateInner() catch |err| handle(err, @src());
+export fn messageCreate() bool {
+    if (messageCreateInner()) {
+        return true;
+    } else |_| return false;
 }
 
 fn messageCreateInner() !void {
@@ -130,8 +116,10 @@ fn callbackLitterReact(data: *const api.Message) !void {
     api.reactMessage(data.channel_id, data.message_id, "🚯");
 }
 
-export fn reactionAdd() void {
-    reactionAddInner() catch |err| handle(err, @src());
+export fn reactionAdd() bool {
+    if (reactionAddInner()) {
+        return true;
+    } else |_| return false;
 }
 
 fn reactionAddInner() !void {
@@ -162,7 +150,6 @@ fn litterEmojiDelete(data: *const api.Reaction) !void {
 comptime {
     _ = acr;
     _ = api;
-    _ = io;
     _ = tools;
     _ = block;
 }

@@ -30,3 +30,19 @@ pub fn isUpper(byte: u8) bool {
 pub fn isDigit(byte: u8) bool {
     return byte -% '0' < 10;
 }
+
+pub fn unwrap(x: anytype) Unwrap(@TypeOf(x)) {
+    switch (@typeInfo(@TypeOf(x))) {
+        .error_union => return x catch unreachable,
+        .optional => return x orelse unreachable,
+        else => comptime unreachable,
+    }
+}
+
+fn Unwrap(comptime T: type) type {
+    return switch (@typeInfo(T)) {
+        .error_union => |info| info.payload,
+        .optional => |info| info.child,
+        else => comptime unreachable,
+    };
+}

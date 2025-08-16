@@ -52,24 +52,20 @@ const wasm_env = {
             return false;
         }
     },
-    writeStdoutApi: (out_ptr: number, out_len: number): boolean => {
+    writeStdoutApi: (out_ptr: number, out_len: number): void => {
         try {
             const output = readString(out_ptr, out_len);
             process.stdout.write(output);
-            return true;
         } catch (err) {
             console.log("TypeScript Error: " + String(err));
-            return false;
         }
     },
-    fillRandomApi: (dest_ptr: number, dest_len: number): boolean => {
+    fillRandomApi: (dest_ptr: number, dest_len: number): void => {
         try {
             const bytes = new Uint8Array(memory.buffer, dest_ptr, dest_len);
             crypto.getRandomValues(bytes);
-            return true;
         } catch (err) {
             console.log("TypeScript Error: " + String(err));
-            return false;
         }
     },
     replyMessageApi: (
@@ -169,8 +165,8 @@ const instance = new WebAssembly.Instance(module, { env: wasm_env });
 const exports = instance.exports;
 
 const allocateMem = exports["allocateMem"] as (len: number) => number;
-const messageCreate = exports["messageCreate"] as () => void;
-const reactionAdd = exports["reactionAdd"] as () => void;
+const messageCreate = exports["messageCreate"] as () => boolean;
+const reactionAdd = exports["reactionAdd"] as () => boolean;
 const init = exports["init"] as () => boolean;
 
 client.once("ready", (client) => {
@@ -197,7 +193,7 @@ client.on("messageCreate", (message) => {
                 is_bot: message.author.bot,
             } as MessageApi)
         );
-        messageCreate();
+        if (!messageCreate()) throw new Error("WASM messageCreate error");
     } catch (err) {
         console.log("TypeScript Error: " + String(err));
     }
@@ -218,7 +214,7 @@ client.on("messageReactionAdd", async (reaction, user) => {
                 emoji: reaction.emoji.name,
             } as ReactionApi)
         );
-        reactionAdd();
+        if (!reactionAdd()) throw new Error("WASM reactionAdd error");
     } catch (err) {
         console.log("TypeScript Error: " + String(err));
     }
