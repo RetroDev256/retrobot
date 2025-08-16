@@ -13,7 +13,6 @@ const max_blocks = 3;
 
 /// Creates up to max_blocks highlighted zig code blocks
 pub fn createZigBlocks(data: *const api.Message) !void {
-    if (data.is_bot) return;
     var index: usize = 0;
     for (0..max_blocks) |_| {
         // Locate the next zig block and advance our index
@@ -30,14 +29,11 @@ pub fn createZigBlocks(data: *const api.Message) !void {
     }
 }
 
-/// Adds reactions onto newly created highlighted zig code blocks
+/// Adds recycle reaction onto newly created highlighted zig code blocks
 pub fn callbackReactZigBlock(data: *const api.Message) !void {
-    if (std.mem.startsWith(u8, data.content, block_ansi)) {
-        if (std.mem.eql(u8, data.author_id, root.bot_id)) {
-            api.reactMessage(data.channel_id, data.message_id, "♻️");
-            api.reactMessage(data.channel_id, data.message_id, "🚯");
-        }
-    }
+    if (!std.mem.eql(u8, data.author_id, root.bot_id)) return;
+    if (!std.mem.startsWith(u8, data.content, block_ansi)) return;
+    api.reactMessage(data.channel_id, data.message_id, "♻️");
 }
 
 /// Recycling emoji effect on highlighted blocks (swaps between zig and ts)
@@ -63,14 +59,6 @@ pub fn recycleEmojiZigBlock(data: *const api.Reaction) !void {
             api.editMessage(data.channel_id, data.message_id, ansi);
         }
     }
-}
-
-/// Litter emoji effect on highlighted blocks (conditional deletion of block)
-pub fn litterEmojiZigBlock(data: *const api.Reaction) !void {
-    if (std.mem.eql(u8, data.user_id, root.bot_id)) return;
-    if (!std.mem.eql(u8, data.emoji orelse return, "🚯")) return;
-    if (!std.mem.eql(u8, data.author_id, root.bot_id)) return;
-    api.deleteMessage(data.channel_id, data.message_id);
 }
 
 const Color = enum {

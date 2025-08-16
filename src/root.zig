@@ -66,59 +66,68 @@ fn messageCreateInner() !void {
 
     const data: api.Message = try .parse(arena.allocator(), json);
 
-    inline for (&.{
-        handlePing,
-        handleNoU,
-        handleRand,
-        handleShoulds,
-        acr.handleAcr,
-        block.createZigBlocks,
-        block.callbackReactZigBlock,
-    }) |handler| try handler(&data);
+    // Handle both both and user messages here
+    try callbackLitterReact(&data);
+    try block.callbackReactZigBlock(&data);
+
+    // We can only handle user messages here
+    if (data.is_bot) return;
+
+    try handlePing(&data);
+    try handleNoU(&data);
+    try handleRand(&data);
+    try handleShouldI(&data);
+    try handleShouldWe(&data);
+    try acr.handleAcr(&data);
+    try block.createZigBlocks(&data);
 }
 
 // respond to case-insensitive "ping" with "pong"
 fn handlePing(data: *const api.Message) !void {
-    if (data.is_bot) return;
-    if (std.mem.eql(u8, "ping", data.content)) {
-        api.replyMessage(data.channel_id, data.message_id, "pong");
-    }
+    if (!std.mem.eql(u8, "ping", data.content)) return;
+    api.replyMessage(data.channel_id, data.message_id, "pong");
 }
 
 // respond to case-insensitive "no u" with "no u"
 fn handleNoU(data: *const api.Message) !void {
-    if (data.is_bot) return;
-    if (tools.insensitiveEql("no u", data.content)) {
-        api.replyMessage(data.channel_id, data.message_id, "no u");
-    }
+    if (!tools.insensitiveEql("no u", data.content)) return;
+    api.replyMessage(data.channel_id, data.message_id, "no u");
 }
 
 // respond to case-insensitive "rand" command with random u64
 fn handleRand(data: *const api.Message) !void {
-    if (data.is_bot) return;
-    if (std.mem.startsWith(u8, data.content, prefix ++ "rand")) {
-        var buffer: [64]u8 = undefined;
-        var writer = std.Io.Writer.fixed(&buffer);
-        try writer.writeAll("Here's your random u64: `0x");
-        try writer.printInt(csprng.int(u64), 16, .upper, .{
-            .width = 16,
-            .fill = '0',
-        });
-        try writer.writeByte('`');
-        const reply = writer.buffered();
-        api.replyMessage(data.channel_id, data.message_id, reply);
-    }
+    if (!std.mem.startsWith(u8, data.content, prefix ++ "rand")) return;
+
+    var buffer: [64]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buffer);
+
+    try writer.writeAll("Here's your random u64: `0x");
+    const opts: std.fmt.Options = .{ .width = 16, .fill = '0' };
+    try writer.printInt(csprng.int(u64), 16, .upper, opts);
+    try writer.writeByte('`');
+
+    api.replyMessage(data.channel_id, data.message_id, writer.buffered());
 }
 
-// respond to "should i..." and "should we..." with random decision
-fn handleShoulds(data: *const api.Message) !void {
-    if (data.is_bot) return;
-    const should_i = tools.startsWithInsensitive("should i", data.content);
-    const should_we = tools.startsWithInsensitive("should we", data.content);
-    if (should_i or should_we) {
-        const reply = if (csprng.boolean()) "yes" else "no";
-        api.replyMessage(data.channel_id, data.message_id, reply);
-    }
+// respond to "should i..." with a random "yes" or "no"
+fn handleShouldI(data: *const api.Message) !void {
+    if (!tools.startsWithInsensitive("should i", data.content)) return;
+    const reply = if (csprng.boolean()) "yes" else "no";
+    api.replyMessage(data.channel_id, data.message_id, reply);
+}
+
+// respond to "should we..." with a random "yes" or "no"
+fn handleShouldWe(data: *const api.Message) !void {
+    if (!tools.startsWithInsensitive("should we", data.content)) return;
+    const reply = if (csprng.boolean()) "yes" else "no";
+    api.replyMessage(data.channel_id, data.message_id, reply);
+}
+
+/// Adds litter reaction onto newly created messages (so users can delete them)
+fn callbackLitterReact(data: *const api.Message) !void {
+    // The message should only be "littered" if sent by the bot
+    if (!std.mem.eql(u8, data.author_id, bot_id)) return;
+    api.reactMessage(data.channel_id, data.message_id, "🚯");
 }
 
 export fn reactionAdd() void {
@@ -134,10 +143,20 @@ fn reactionAddInner() !void {
 
     const data: api.Reaction = try .parse(arena.allocator(), json);
 
-    inline for (&.{
-        block.recycleEmojiZigBlock,
-        block.litterEmojiZigBlock,
-    }) |handler| try handler(&data);
+    try litterEmojiDelete(&data);
+    try block.recycleEmojiZigBlock(&data);
+}
+
+/// Litter emoji effect on highlighted blocks (conditional deletion of block)
+fn litterEmojiDelete(data: *const api.Reaction) !void {
+    // The message should not be deleted if the bot added the reaction
+    if (std.mem.eql(u8, data.user_id, bot_id)) return;
+    // The message should only be deleted if the reaction is 🚯
+    if (!std.mem.eql(u8, data.emoji orelse return, "🚯")) return;
+    // The message should only be deleted if the message was sent by the bot
+    if (!std.mem.eql(u8, data.author_id, bot_id)) return;
+
+    api.deleteMessage(data.channel_id, data.message_id);
 }
 
 comptime {
