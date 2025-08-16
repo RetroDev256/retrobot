@@ -40,18 +40,6 @@ type ReactionApi = {
     emoji: string | null;
 };
 
-type FetchReferenceApi = {
-    message: MessageApi | null;
-};
-
-type PermissionsApi = {
-    manages_messages: boolean;
-};
-
-type FetchPermissionApi = {
-    permissions: PermissionsApi | null;
-};
-
 const wasm_env = {
     memory: memory,
     readFileApi: (path_ptr: number, path_len: number): boolean => {
@@ -168,78 +156,6 @@ const wasm_env = {
                 if (!channel || !("messages" in channel)) return;
                 const message = await channel.messages.fetch(message_id);
                 await message.react(reaction);
-            } catch (err) {
-                console.log("TypeScript Error: " + String(err));
-            }
-        })();
-    },
-    fetchReferenceApi: (
-        channel_id_ptr: number,
-        channel_id_len: number,
-        message_id_ptr: number,
-        message_id_len: number,
-        callback_ptr: number,
-        callback_len: number
-    ): void => {
-        (async () => {
-            try {
-                const channel_id = readString(channel_id_ptr, channel_id_len);
-                const message_id = readString(message_id_ptr, message_id_len);
-                const callback_str = readString(callback_ptr, callback_len);
-                const callback = exports[callback_str] as () => void;
-
-                const channel = await client.channels.fetch(channel_id);
-                if (!channel || !("messages" in channel)) return;
-                const message = await channel.messages.fetch(message_id);
-                let message_api: MessageApi | null = null;
-                if (message.reference !== null) {
-                    const reference = await message.fetchReference();
-                    message_api = {
-                        channel_id: reference.channelId,
-                        message_id: reference.id,
-                        author_id: reference.author.id,
-                        content: reference.content,
-                        is_bot: reference.author.bot,
-                    };
-                }
-
-                const result: FetchReferenceApi = { message: message_api };
-                pushString(JSON.stringify(result as FetchReferenceApi));
-                callback();
-            } catch (err) {
-                console.log("TypeScript Error: " + String(err));
-            }
-        })();
-    },
-    fetchPermissionsApi: (
-        channel_id_ptr: number,
-        channel_id_len: number,
-        user_id_ptr: number,
-        user_id_len: number,
-        callback_ptr: number,
-        callback_len: number
-    ): void => {
-        (async () => {
-            try {
-                const channel_id = readString(channel_id_ptr, channel_id_len);
-                const user_id = readString(user_id_ptr, user_id_len);
-                const callback_str = readString(callback_ptr, callback_len);
-                const callback = exports[callback_str] as () => void;
-
-                const channel = await client.channels.fetch(channel_id);
-                if (!channel || !("guild" in channel)) return;
-                const member = await channel.guild.members.fetch(user_id);
-
-                let manages_messages: boolean = false;
-                if (channel.permissionsFor(member).has("ManageMessages")) {
-                    manages_messages = true;
-                }
-
-                const result: FetchPermissionApi = {
-                    permissions: { manages_messages: manages_messages },
-                };
-                pushString(JSON.stringify(result as FetchPermissionApi));
-                callback();
             } catch (err) {
                 console.log("TypeScript Error: " + String(err));
             }

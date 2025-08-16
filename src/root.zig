@@ -72,7 +72,7 @@ fn messageCreateInner() !void {
         handleRand,
         handleShoulds,
         acr.handleAcr,
-        block.createZigBlock,
+        block.createZigBlocks,
         block.callbackReactZigBlock,
     }) |handler| try handler(&data);
 }
