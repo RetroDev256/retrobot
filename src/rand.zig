@@ -2,7 +2,7 @@ const std = @import("std");
 const Writer = std.Io.Writer;
 const api = @import("api.zig");
 const assert = std.debug.assert;
-const prefix = @import("root.zig").prefix;
+const cmd_prefix = @import("root.zig").prefix;
 const unwrap = @import("tools.zig").unwrap;
 
 pub const csprng: std.Random = .{ .ptr = undefined, .fillFn = &fillFn };
@@ -17,6 +17,17 @@ const Base = enum {
     hex,
     b64,
 
+    /// The leading prefix for a number of this base
+    fn prefix(comptime self: @This()) []const u8 {
+        return switch (self) {
+            .bin => "0b",
+            .oct => "0o",
+            .hex => "0x",
+            else => "",
+        };
+    }
+
+    /// The number of symbols representable with one digit
     fn states(comptime self: @This()) comptime_int {
         return switch (self) {
             .bin => 2,
@@ -86,7 +97,7 @@ const repeat_bits = "Bit count option may not be repeated.";
 
 // respond to case-insensitive "rand" command with random u64
 pub fn handle(data: *const api.Message) !void {
-    const command: []const u8 = prefix ++ "rand";
+    const command: []const u8 = cmd_prefix ++ "rand";
     if (!std.mem.startsWith(u8, data.content, command)) return;
 
     const c_id = data.channel_id;
@@ -147,6 +158,9 @@ pub fn handle(data: *const api.Message) !void {
 fn randDispatch(writer: *Writer, rt_base: Base, bits: u16) !void {
     switch (rt_base) {
         inline else => |base| {
+            // Write the leading prefix for certain bases
+            unwrap(writer.writeAll(base.prefix()));
+
             // Handle the edge case where 0 bits are requested
             if (bits == 0) return switch (base) {
                 .b64 => unwrap(writer.writeByte('\n')),
