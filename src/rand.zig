@@ -70,14 +70,13 @@ const Base = enum {
 
     /// big integer limb division for base conversion
     fn reduce(comptime self: @This(), limbs: []u8) u8 {
-        var rem: usize = 0;
-        for (0..limbs.len) |idx| {
-            const rev_idx = limbs.len - idx - 1;
-            const temp = (rem << 8) | limbs[rev_idx];
-            limbs[rev_idx] = @intCast(temp / self.states());
-            rem = temp % self.states();
+        var remainder: usize = 0;
+        for (limbs) |*limb| {
+            const current_val = (remainder << 8) | limb.*;
+            limb.* = @intCast(current_val / self.states());
+            remainder = current_val % self.states();
         }
-        return @intCast(rem);
+        return @intCast(remainder);
     }
 };
 
@@ -112,21 +111,17 @@ pub fn handle(data: *const api.Message) !void {
                 return;
             },
             error.InvalidCharacter => {
-                var base_parse: ?Base = null;
-                if (std.mem.eql(u8, arg, "bin")) base_parse = .bin;
-                if (std.mem.eql(u8, arg, "oct")) base_parse = .oct;
-                if (std.mem.eql(u8, arg, "dec")) base_parse = .dec;
-                if (std.mem.eql(u8, arg, "hex")) base_parse = .hex;
-                if (std.mem.eql(u8, arg, "b64")) base_parse = .b64;
-                if (base_parse == null) {
+                if (std.meta.stringToEnum(Base, arg)) |base_parse| {
+                    if (base_arg != null) {
+                        api.replyMessage(c_id, m_id, repeat_base);
+                        return;
+                    } else {
+                        base_arg = base_parse;
+                    }
+                } else {
                     const reply = "Unknown option for " ++ command;
                     api.replyMessage(c_id, m_id, reply);
                     return;
-                } else if (base_arg != null) {
-                    api.replyMessage(c_id, m_id, repeat_base);
-                    return;
-                } else {
-                    base_arg = unwrap(base_parse);
                 }
             },
         }
@@ -168,8 +163,9 @@ fn randDispatch(writer: *Writer, rt_base: Base, bits: u16) !void {
             csprng.bytes(buffer[0..used_bytes]);
 
             // Mask off the top byte so we have the right number of bits
-            const trim = bits + 8 - (used_bytes * 8);
-            if (trim != 0) buffer[0] &= (@as(u8, 1) << @intCast(trim)) - 1;
+            if (bits % 8 != 0) {
+                buffer[0] &= (@as(u8, 1) << @intCast(bits % 8)) - 1;
+            }
 
             // Convert the random bytes to digits of the correct base
             var char_stack: [2000]u8 = undefined;
