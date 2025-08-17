@@ -1,19 +1,13 @@
 const std = @import("std");
 const acr = @import("acr.zig");
 const api = @import("api.zig");
+const rand = @import("rand.zig");
 const tools = @import("tools.zig");
 const block = @import("block.zig");
-const unwrap = tools.unwrap;
 
 pub const prefix: []const u8 = ".";
 pub const gpa = std.heap.wasm_allocator;
 pub const bot_id: []const u8 = "814437814111830027";
-pub const csprng: std.Random = .{ .ptr = undefined, .fillFn = fillFn };
-
-// this is a test comment
-fn fillFn(_: *anyopaque, buf: []u8) void {
-    api.fillRandom(buf);
-}
 
 // TODO: .emojis (not sure if I want to do this one)
 // TODO: .randimg (random 256x256 grayscale image)
@@ -58,8 +52,7 @@ fn messageCreateInner() !void {
     if (data.is_bot) return;
     try handleNoU(&data);
     try handlePing(&data);
-    try handleRand(&data);
-    try handle4096(&data);
+    try rand.handle(&data);
     try handleShoulds(&data);
     try acr.handleAcr(&data);
     try block.handleZigBlock(&data);
@@ -77,51 +70,19 @@ fn handlePing(data: *const api.Message) !void {
     api.replyMessage(data.channel_id, data.message_id, "pong");
 }
 
-// respond to case-insensitive "rand" command with random u64
-fn handleRand(data: *const api.Message) !void {
-    if (!std.mem.eql(u8, data.content, prefix ++ "rand")) return;
-
-    var buffer: [44]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
-
-    unwrap(writer.writeAll("Here's your random u64: `0x"));
-    const opts: std.fmt.Options = .{ .width = 16, .fill = '0' };
-    unwrap(writer.printInt(csprng.int(u64), 16, .upper, opts));
-    unwrap(writer.writeByte('`'));
-
-    api.replyMessage(data.channel_id, data.message_id, writer.buffered());
-}
-
-// respond to "4096" command with random u4096
-fn handle4096(data: *const api.Message) !void {
-    if (!std.mem.eql(u8, data.content, prefix ++ "4096")) return;
-
-    var buffer: [1118]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buffer);
-
-    unwrap(writer.writeAll("Here's your random u4096:```"));
-    for (0..64) |index| {
-        if (index != 0) unwrap(writer.writeByte(' '));
-        const opts: std.fmt.Options = .{ .width = 16, .fill = '0' };
-        unwrap(writer.printInt(csprng.int(u64), 16, .upper, opts));
-    }
-    unwrap(writer.writeAll("```"));
-
-    api.replyMessage(data.channel_id, data.message_id, writer.buffered());
-}
-
 // respond to "should i/we..." with a random "yes" or "no"
 fn handleShoulds(data: *const api.Message) !void {
     const should_i = tools.startsWithInsensitive("should i", data.content);
     const should_we = tools.startsWithInsensitive("should we", data.content);
     if (!(should_i or should_we)) return;
-    const reply = if (csprng.boolean()) "yes" else "no";
+    const reply = if (rand.csprng.boolean()) "yes" else "no";
     api.replyMessage(data.channel_id, data.message_id, reply);
 }
 
 comptime {
     _ = acr;
     _ = api;
+    _ = rand;
     _ = tools;
     _ = block;
 }

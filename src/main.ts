@@ -31,8 +31,9 @@ type MessageApi = {
     is_bot: boolean;
 };
 
-const wasm_env = {
+const env = {
     memory: memory,
+
     readFileApi: (path_ptr: number, path_len: number): boolean => {
         try {
             const path = readString(path_ptr, path_len);
@@ -129,7 +130,7 @@ const wasm_env = {
 
 const buffer = fs.readFileSync("retrobot.wasm");
 const module = new WebAssembly.Module(buffer);
-const instance = new WebAssembly.Instance(module, { env: wasm_env });
+const instance = new WebAssembly.Instance(module, { env });
 const exports = instance.exports;
 
 const allocateMem = exports["allocateMem"] as (len: number) => number;

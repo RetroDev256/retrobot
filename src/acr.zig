@@ -1,7 +1,8 @@
 const std = @import("std");
 const api = @import("api.zig");
-const tools = @import("tools.zig");
 const root = @import("root");
+const rand = @import("rand.zig");
+const tools = @import("tools.zig");
 
 const WordList = std.ArrayList([]const u8);
 var word_lists: [26]WordList = @splat(.empty);
@@ -34,7 +35,7 @@ pub fn handleAcr(data: *const api.Message) !void {
         if (letter >= 26) continue;
 
         const options = word_lists[letter].items.len;
-        const choice = root.csprng.intRangeLessThan(usize, 0, options);
+        const choice = rand.csprng.intRangeLessThan(usize, 0, options);
         try writer.print("{s} ", .{word_lists[letter].items[choice]});
     }
 

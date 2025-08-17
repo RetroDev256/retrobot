@@ -1,8 +1,7 @@
 const std = @import("std");
+const root = @import("root.zig");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
-
-const gpa: std.mem.Allocator = @import("root").gpa;
 
 extern fn readFileApi(path_ptr: [*]const u8, path_len: usize) bool;
 pub fn readFile(path: []const u8) ![]const u8 {
@@ -91,8 +90,8 @@ var string_stack: std.ArrayList([]const u8) = .empty;
 
 /// For setting string parameters from TypeScript
 export fn allocateMem(len: usize) ?[*]u8 {
-    string_stack.ensureUnusedCapacity(gpa, 1) catch return null;
-    const str = gpa.alloc(u8, len) catch return null;
+    string_stack.ensureUnusedCapacity(root.gpa, 1) catch return null;
+    const str = root.gpa.alloc(u8, len) catch return null;
     string_stack.appendAssumeCapacity(str);
     return str.ptr;
 }
