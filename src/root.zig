@@ -5,7 +5,7 @@ const rand = @import("rand.zig");
 const tools = @import("tools.zig");
 const block = @import("block.zig");
 
-pub const prefix: []const u8 = ".";
+pub const cmd_prefix: []const u8 = ".";
 pub const gpa = std.heap.wasm_allocator;
 pub const bot_id: []const u8 = "814437814111830027";
 
@@ -52,8 +52,8 @@ fn messageCreateInner() !void {
     if (data.is_bot) return;
     try handleNoU(&data);
     try handlePing(&data);
+    try handleAsk(&data);
     try rand.handle(&data);
-    try handleShoulds(&data);
     try acr.handleAcr(&data);
     try block.handleZigBlock(&data);
 }
@@ -70,11 +70,10 @@ fn handlePing(data: *const api.Message) !void {
     api.replyMessage(data.channel_id, data.message_id, "pong");
 }
 
-// respond to "should i/we..." with a random "yes" or "no"
-fn handleShoulds(data: *const api.Message) !void {
-    const should_i = tools.startsWithInsensitive("should i", data.content);
-    const should_we = tools.startsWithInsensitive("should we", data.content);
-    if (!(should_i or should_we)) return;
+// respond to ".ask ..." with a random "yes" or "no"
+fn handleAsk(data: *const api.Message) !void {
+    const command: []const u8 = cmd_prefix ++ "ask";
+    if (!tools.startsWithInsensitive(command, data.content)) return;
     const reply = if (rand.csprng.boolean()) "yes" else "no";
     api.replyMessage(data.channel_id, data.message_id, reply);
 }

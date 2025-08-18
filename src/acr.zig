@@ -24,7 +24,7 @@ fn splitList(text: []const u8) !void {
 }
 
 pub fn handleAcr(data: *const api.Message) !void {
-    const command = root.prefix ++ "acr ";
+    const command = root.cmd_prefix ++ "acr ";
     if (!std.mem.startsWith(u8, data.content, command)) return;
 
     var buffer: [2000]u8 = undefined;

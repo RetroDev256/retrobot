@@ -2,7 +2,7 @@ const std = @import("std");
 const Writer = std.Io.Writer;
 const api = @import("api.zig");
 const assert = std.debug.assert;
-const cmd_prefix = @import("root.zig").prefix;
+const cmd_prefix = @import("root.zig").cmd_prefix;
 const unwrap = @import("tools.zig").unwrap;
 
 pub const csprng: std.Random = .{ .ptr = undefined, .fillFn = &fillFn };
