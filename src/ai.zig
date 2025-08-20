@@ -49,5 +49,14 @@ fn aiHandleCallbackInner() !void {
     defer root.gpa.free(channel_id);
 
     if (response.len > 2000) return error.ResponseTooLong;
-    api.replyMessage(channel_id, message_id, response);
+
+    if (std.mem.indexOfAny(u8, response, "@everyone") != null) {
+        const error_response = "You really thought you could trick me into pinging everyone? hah.";
+        api.replyMessage(channel_id, message_id, error_response);
+    } else if (std.mem.indexOfAny(u8, response, "@here") != null) {
+        const error_response = "You really thought you could trick me into pinging everyone here? hah.";
+        api.replyMessage(channel_id, message_id, error_response);
+    } else {
+        api.replyMessage(channel_id, message_id, response);
+    }
 }
