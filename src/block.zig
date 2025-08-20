@@ -9,7 +9,7 @@ const block_ansi = "```ansi\n";
 const block_end = "```";
 
 /// Creates up to max_blocks highlighted zig code blocks
-pub fn handleZigBlock(data: *const api.Message) !void {
+pub fn handle(data: *const api.Message) !void {
     var index: usize = 0;
     while (true) {
         // Locate the next zig block and advance our index

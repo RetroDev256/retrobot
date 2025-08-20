@@ -27,8 +27,9 @@ pub fn build(b: *std.Build) void {
     // Build and install WASM artifact
     const install_wasm = b.addInstallArtifact(wasm, .{});
 
-    // Add or update discord.js
+    // Add or update discord.js & ollama
     const discord_add = b.addSystemCommand(&.{ "bun", "add", "discord.js" });
+    const ollama_add = b.addSystemCommand(&.{ "bun", "add", "ollama" });
 
     // Build typescript source
     const ts_source = try b.build_root.join(b.allocator, &.{"src/main.ts"});
@@ -37,6 +38,7 @@ pub fn build(b: *std.Build) void {
         b.exe_dir, "--target", "bun",     "--sourcemap",
     });
     bun_build.step.dependOn(&discord_add.step);
+    bun_build.step.dependOn(&ollama_add.step);
     b.default_step.dependOn(&bun_build.step);
 
     // Copy .env to output directory

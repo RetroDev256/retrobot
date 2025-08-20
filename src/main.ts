@@ -1,4 +1,5 @@
 import { Client, GatewayIntentBits, Partials } from "discord.js";
+import ollama from "ollama";
 import * as fs from "fs";
 
 const client = new Client({
@@ -40,7 +41,7 @@ const env = {
             pushString(fs.readFileSync(path, "utf8"));
             return true;
         } catch (err) {
-            console.log("TypeScript Error: " + String(err));
+            console.log("Error: " + String(err));
             return false;
         }
     },
@@ -49,7 +50,7 @@ const env = {
             const output = readString(out_ptr, out_len);
             process.stdout.write(output);
         } catch (err) {
-            console.log("TypeScript Error: " + String(err));
+            console.log("Error: " + String(err));
         }
     },
     fillRandomApi: (dest_ptr: number, dest_len: number): void => {
@@ -57,8 +58,42 @@ const env = {
             const bytes = new Uint8Array(memory.buffer, dest_ptr, dest_len);
             crypto.getRandomValues(bytes);
         } catch (err) {
-            console.log("TypeScript Error: " + String(err));
+            console.log("Error: " + String(err));
         }
+    },
+    askOllamaApi: (
+        messages_ptr: number,
+        messages_len: number,
+        callback_ptr: number,
+        callback_len: number
+    ): void => {
+        const message = readString(messages_ptr, messages_len);
+        const callback = readString(callback_ptr, callback_len);
+        const callbackFn = exports[callback] as () => boolean;
+
+        (async () => {
+            try {
+                const response = await ollama.chat({
+                    model: "gemma3:4b",
+                    messages: [{ role: "user", content: message }],
+                    stream: false,
+                    keep_alive: -1,
+                    think: false,
+                    options: {
+                        temperature: 0.5,
+                        num_ctx: 32_768,
+                        num_predict: 200,
+                    },
+                });
+                pushString(response.message.content);
+            } catch (err) {
+                console.log("Error:" + String(err));
+            } finally {
+                if (!callbackFn()) {
+                    console.log(`Error: ${callback} failed`);
+                }
+            }
+        })();
     },
     replyMessageApi: (
         channel_id_ptr: number,
@@ -68,63 +103,19 @@ const env = {
         content_ptr: number,
         content_len: number
     ): void => {
-        (async () => {
-            try {
-                const channel_id = readString(channel_id_ptr, channel_id_len);
-                const message_id = readString(message_id_ptr, message_id_len);
-                const content = readString(content_ptr, content_len);
-
+        try {
+            const channel_id = readString(channel_id_ptr, channel_id_len);
+            const message_id = readString(message_id_ptr, message_id_len);
+            const content = readString(content_ptr, content_len);
+            (async () => {
                 const channel = await client.channels.fetch(channel_id);
                 if (!channel || !("messages" in channel)) return;
                 const message = channel.messages.fetch(message_id);
                 await (await message).reply(content);
-            } catch (err) {
-                console.log("TypeScript Error: " + String(err));
-            }
-        })();
-    },
-    editMessageApi: (
-        channel_id_ptr: number,
-        channel_id_len: number,
-        message_id_ptr: number,
-        message_id_len: number,
-        content_ptr: number,
-        content_len: number
-    ): void => {
-        (async () => {
-            try {
-                const channel_id = readString(channel_id_ptr, channel_id_len);
-                const message_id = readString(message_id_ptr, message_id_len);
-                const content = readString(content_ptr, content_len);
-
-                const channel = await client.channels.fetch(channel_id);
-                if (!channel || !("messages" in channel)) return;
-                const message = await channel.messages.fetch(message_id);
-                await message.edit(content);
-            } catch (err) {
-                console.log("TypeScript Error: " + String(err));
-            }
-        })();
-    },
-    deleteMessageApi: (
-        channel_id_ptr: number,
-        channel_id_len: number,
-        message_id_ptr: number,
-        message_id_len: number
-    ): void => {
-        (async () => {
-            try {
-                const channel_id = readString(channel_id_ptr, channel_id_len);
-                const message_id = readString(message_id_ptr, message_id_len);
-
-                const channel = await client.channels.fetch(channel_id);
-                if (!channel || !("messages" in channel)) return;
-                const message = await channel.messages.fetch(message_id);
-                await message.delete();
-            } catch (err) {
-                console.log("TypeScript Error: " + String(err));
-            }
-        })();
+            })();
+        } catch (err) {
+            console.log("Error: " + String(err));
+        }
     },
 };
 
@@ -162,10 +153,10 @@ client.on("messageCreate", (message) => {
             } as MessageApi)
         );
         if (!messageCreate()) {
-            console.log("WASM Error: messageCreate returned with error");
+            console.log("Error: messageCreate failed");
         }
     } catch (err) {
-        console.log("TypeScript Error: " + String(err));
+        console.log("Error: " + String(err));
     }
 });
 

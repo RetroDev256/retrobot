@@ -19,6 +19,17 @@ pub fn fillRandom(dest: []u8) void {
     fillRandomApi(dest.ptr, dest.len);
 }
 
+extern fn askOllamaApi(
+    prompt_ptr: [*]const u8,
+    prompt_len: usize,
+    callback_ptr: [*]const u8,
+    callback_len: usize,
+) void;
+
+pub fn askOllama(prompt: []const u8, callback: []const u8) void {
+    askOllamaApi(prompt.ptr, prompt.len, callback.ptr, callback.len);
+}
+
 extern fn replyMessageApi(
     channel_id_ptr: [*]const u8,
     channel_id_len: usize,
@@ -43,49 +54,6 @@ pub fn replyMessage(
     );
 }
 
-extern fn editMessageApi(
-    channel_id_ptr: [*]const u8,
-    channel_id_len: usize,
-    message_id_ptr: [*]const u8,
-    message_id_len: usize,
-    content_ptr: [*]const u8,
-    content_len: usize,
-) void;
-
-pub fn editMessage(
-    channel_id: []const u8,
-    message_id: []const u8,
-    content: []const u8,
-) void {
-    editMessageApi(
-        channel_id.ptr,
-        channel_id.len,
-        message_id.ptr,
-        message_id.len,
-        content.ptr,
-        content.len,
-    );
-}
-
-extern fn deleteMessageApi(
-    channel_id_ptr: [*]const u8,
-    channel_id_len: usize,
-    message_id_ptr: [*]const u8,
-    message_id_len: usize,
-) void;
-
-pub fn deleteMessage(
-    channel_id: []const u8,
-    message_id: []const u8,
-) void {
-    deleteMessageApi(
-        channel_id.ptr,
-        channel_id.len,
-        message_id.ptr,
-        message_id.len,
-    );
-}
-
 var string_stack: std.ArrayList([]const u8) = .empty;
 
 /// For setting string parameters from TypeScript
@@ -94,6 +62,13 @@ export fn allocateMem(len: usize) ?[*]u8 {
     const str = root.gpa.alloc(u8, len) catch return null;
     string_stack.appendAssumeCapacity(str);
     return str.ptr;
+}
+
+/// For injecting callback strings back with Zig
+pub fn pushString(str: []const u8) !void {
+    const owned_str = try root.gpa.dupe(u8, str);
+    errdefer root.gpa.free(owned_str);
+    try string_stack.append(root.gpa, owned_str);
 }
 
 /// For accessing string parameters in Zig

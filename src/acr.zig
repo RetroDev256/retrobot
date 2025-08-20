@@ -23,7 +23,7 @@ fn splitList(text: []const u8) !void {
     }
 }
 
-pub fn handleAcr(data: *const api.Message) !void {
+pub fn handle(data: *const api.Message) !void {
     const command = root.cmd_prefix ++ "acr ";
     if (!std.mem.startsWith(u8, data.content, command)) return;
 
