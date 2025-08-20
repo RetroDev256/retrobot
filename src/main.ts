@@ -82,7 +82,7 @@ const env = {
                     options: {
                         temperature: 0.5,
                         num_ctx: 32_768,
-                        num_predict: 200,
+                        num_predict: 400,
                     },
                 });
                 pushString(response.message.content);
