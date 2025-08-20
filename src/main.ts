@@ -111,7 +111,15 @@ const env = {
                 const channel = await client.channels.fetch(channel_id);
                 if (!channel || !("messages" in channel)) return;
                 const message = channel.messages.fetch(message_id);
-                await (await message).reply(content);
+                await (
+                    await message
+                ).reply({
+                    content: content,
+                    allowedMentions: {
+                        parse: [],
+                        repliedUser: true,
+                    },
+                });
             })();
         } catch (err) {
             console.log("Error: " + String(err));
