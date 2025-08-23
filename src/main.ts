@@ -187,7 +187,7 @@ You will now be shown the message history. Respond only to the final message.`;
         keep_alive: -1,
         options: {
             temperature: 0.7,
-            num_ctx: 128_000,
+            num_ctx: 96_000,
         },
     });
 
