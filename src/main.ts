@@ -194,7 +194,7 @@ You will receive a single message from a user, formatted as "[DisplayName]: mess
             dirty = true;
         }
 
-        if (Date.now() - last_time >= 500) {
+        if (Date.now() - last_time >= 1000) {
             const content = completed_queue.shift();
             if (content !== undefined) {
                 current = await current.reply({ content, allowedMentions });
