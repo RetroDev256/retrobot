@@ -158,7 +158,6 @@ async function handleAiRequest(
     let completed_queue: string[] = [];
     let last_time = Date.now();
     let buffer: string = "";
-    let dirty: boolean = false;
 
     for await (const chunk of response) {
         const content = chunk.message.content;
@@ -166,11 +165,9 @@ async function handleAiRequest(
 
         if (sum_length <= 2000) {
             buffer += content;
-            dirty = true;
         } else {
             completed_queue.push(buffer);
             buffer = content;
-            dirty = true;
         }
 
         if (Date.now() - last_time >= 1000) {
@@ -179,7 +176,6 @@ async function handleAiRequest(
                 current = await current.reply({ content, allowedMentions });
             } else {
                 current.edit({ content: buffer, allowedMentions });
-                dirty = false;
             }
             last_time = Date.now();
         }
@@ -191,7 +187,7 @@ async function handleAiRequest(
         current = await current.reply({ content, allowedMentions });
     }
 
-    if (buffer.length != 0 && dirty) {
+    if (buffer.length != 0) {
         current.edit({ content: buffer, allowedMentions });
     }
 }
