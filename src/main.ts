@@ -181,7 +181,7 @@ You will now be shown the message history. Respond only to the final message.`;
     ];
 
     const response = await ollama.chat({
-        model: "gemma3:12b",
+        model: "gemma3:4b",
         messages: messages,
         stream: true,
         keep_alive: -1,
