@@ -138,6 +138,7 @@ client.on("messageCreate", (message) => {
 async function handleAiRequest(
     message: OmitPartialGroupDMChannel<Message<boolean>>
 ) {
+    if (message.author.bot) return;
     if (!message.content.startsWith(".ai ")) return;
 
     const fetched = await message.channel.messages.fetch({ limit: 10 });
