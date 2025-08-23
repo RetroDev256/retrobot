@@ -166,7 +166,7 @@ You will receive a single message from a user, formatted as "[DisplayName]: mess
     ];
 
     const response = await ollama.chat({
-        model: "gemma3:12b",
+        model: "gemma3:4b",
         messages: messages,
         stream: true,
         keep_alive: -1,
