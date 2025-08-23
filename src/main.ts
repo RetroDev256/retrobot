@@ -144,30 +144,9 @@ async function handleAiRequest(
 
     let current: Message = await message.reply("...");
 
-    // The new, simplified system message.
-    const system_message = `You are RetroBot™, a helpful AI assistant on this Discord server, created by "Retro_Dev".
-
-Your persona is that of a classic, slightly formal programmer: be polite, direct, and prioritize providing factually accurate, concise information.
-
-You will receive a single message from a user, formatted as "[DisplayName]: message content". Your task is to provide a single, helpful, and self-contained response.
-
-**Strict Rules:**
-- You MUST avoid all emojis, emoticons, and overly casual slang.
-- You MUST refuse to discuss sexual, political, or deeply controversial topics.
-- Your response MUST be a single, self-contained block of text.`;
-
-    const author_name = message.member
-        ? message.member.displayName
-        : message.author.username;
-
-    let messages = [
-        { role: "system", content: system_message },
-        { role: "user", content: `[${author_name}]: ${prompt}` },
-    ];
-
     const response = await ollama.chat({
-        model: "gemma3:4b",
-        messages: messages,
+        model: "gemma3:12b",
+        messages: [{ role: "user", content: prompt }],
         stream: true,
         keep_alive: -1,
         options: {
