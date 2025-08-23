@@ -19,17 +19,6 @@ pub fn fillRandom(dest: []u8) void {
     fillRandomApi(dest.ptr, dest.len);
 }
 
-extern fn askOllamaApi(
-    prompt_ptr: [*]const u8,
-    prompt_len: usize,
-    callback_ptr: [*]const u8,
-    callback_len: usize,
-) void;
-
-pub fn askOllama(prompt: []const u8, callback: []const u8) void {
-    askOllamaApi(prompt.ptr, prompt.len, callback.ptr, callback.len);
-}
-
 extern fn replyMessageApi(
     channel_id_ptr: [*]const u8,
     channel_id_len: usize,

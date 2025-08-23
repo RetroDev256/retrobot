@@ -1,6 +1,14 @@
-import { Client, GatewayIntentBits, Partials } from "discord.js";
+import {
+    Client,
+    Message,
+    Partials,
+    GatewayIntentBits,
+    type OmitPartialGroupDMChannel,
+} from "discord.js";
 import ollama from "ollama";
 import * as fs from "fs";
+
+const allowedMentions = { parse: [], repliedUser: true };
 
 const client = new Client({
     intents: Object.values(GatewayIntentBits) as GatewayIntentBits[],
@@ -61,40 +69,6 @@ const env = {
             console.log("Error: " + String(err));
         }
     },
-    askOllamaApi: (
-        messages_ptr: number,
-        messages_len: number,
-        callback_ptr: number,
-        callback_len: number
-    ): void => {
-        const message = readString(messages_ptr, messages_len);
-        const callback = readString(callback_ptr, callback_len);
-        const callbackFn = exports[callback] as () => boolean;
-
-        (async () => {
-            try {
-                const response = await ollama.chat({
-                    model: "gemma3:4b",
-                    messages: [{ role: "user", content: message }],
-                    stream: false,
-                    keep_alive: -1,
-                    think: false,
-                    options: {
-                        temperature: 0.5,
-                        num_ctx: 32_768,
-                        num_predict: 400,
-                    },
-                });
-                pushString(response.message.content);
-            } catch (err) {
-                console.log("Error:" + String(err));
-            } finally {
-                if (!callbackFn()) {
-                    console.log(`Error: ${callback} failed`);
-                }
-            }
-        })();
-    },
     replyMessageApi: (
         channel_id_ptr: number,
         channel_id_len: number,
@@ -110,16 +84,8 @@ const env = {
             (async () => {
                 const channel = await client.channels.fetch(channel_id);
                 if (!channel || !("messages" in channel)) return;
-                const message = channel.messages.fetch(message_id);
-                await (
-                    await message
-                ).reply({
-                    content: content,
-                    allowedMentions: {
-                        parse: [],
-                        repliedUser: true,
-                    },
-                });
+                const message = await channel.messages.fetch(message_id);
+                await message.reply({ content, allowedMentions });
             })();
         } catch (err) {
             console.log("Error: " + String(err));
@@ -136,7 +102,7 @@ const allocateMem = exports["allocateMem"] as (len: number) => number;
 const messageCreate = exports["messageCreate"] as () => boolean;
 const init = exports["init"] as () => boolean;
 
-client.once("ready", (client) => {
+client.once("clientReady", (client) => {
     console.log("Logged in as", client.user?.tag);
     for (const guild of client.guilds.cache.values()) {
         console.log(`- ${guild.name}: ${guild.memberCount} members`);
@@ -163,10 +129,107 @@ client.on("messageCreate", (message) => {
         if (!messageCreate()) {
             console.log("Error: messageCreate failed");
         }
+        handleAiRequest(message);
     } catch (err) {
         console.log("Error: " + String(err));
     }
 });
+
+async function handleAiRequest(
+    message: OmitPartialGroupDMChannel<Message<boolean>>
+) {
+    if (!message.content.startsWith(".ai ")) return;
+
+    const fetched = await message.channel.messages.fetch({ limit: 10 });
+    const history = Array.from(fetched.values()).reverse();
+    let current: Message = await message.reply("...");
+
+    // Define the system message with clear instructions.
+    const system_message = `You are RetroBot™, a helpful AI assistant on a Discord server. Your creator is named "Retro_Dev".
+
+You will be given a history of the most recent messages from the channel. Each message includes the author's display name. Your own previous messages will be labeled with the username "RetroBot™".
+
+Your task is to analyze this message history and provide a single, relevant, and helpful response to the last message, keeping the context of the prior conversation in mind.
+
+**Your Persona & Rules:**
+- Your persona is that of a classic, slightly formal programmer.
+- You are polite, direct, and you prioritize factual accuracy.
+- You MUST strictly avoid all emojis and emoticons.
+- You MUST refuse to discuss sexual, political, or deeply controversial topics.
+- You do not express personal opinions or beliefs.
+- Your response should be a single block of text, not a multi-part conversation.
+
+You will now be shown the message history. Respond only to the final message.`;
+
+    // Format the entire message history into a single, structured block.
+    let history_log = "--- BEGIN MESSAGE HISTORY ---\n";
+
+    for (const item of history) {
+        // Use the member's display name if available, otherwise their username.
+        const author_name = item.member
+            ? item.member.displayName
+            : item.author.username;
+        history_log += `[${author_name}]: ${item.content}\n`;
+    }
+
+    history_log += "--- END MESSAGE HISTORY ---";
+
+    let messages = [
+        { role: "system", content: system_message },
+        { role: "user", content: history_log },
+    ];
+
+    const response = await ollama.chat({
+        model: "gemma3:12b",
+        messages: messages,
+        stream: true,
+        keep_alive: -1,
+        options: {
+            temperature: 0.7,
+            num_ctx: 128_000,
+        },
+    });
+
+    let completed_queue: string[] = [];
+    let last_time = Date.now();
+    let buffer: string = "";
+    let dirty: boolean = false;
+
+    for await (const chunk of response) {
+        const content = chunk.message.content;
+        const sum_length = content.length + buffer.length;
+
+        if (sum_length <= 2000) {
+            buffer += content;
+            dirty = true;
+        } else {
+            completed_queue.push(buffer);
+            buffer = content;
+            dirty = true;
+        }
+
+        if (Date.now() - last_time >= 500) {
+            const content = completed_queue.shift();
+            if (content !== undefined) {
+                current = await current.reply({ content, allowedMentions });
+            } else {
+                current.edit({ content: buffer, allowedMentions });
+                dirty = false;
+            }
+            last_time = Date.now();
+        }
+    }
+
+    while (true) {
+        const content = completed_queue.shift();
+        if (content === undefined) break;
+        current = await current.reply({ content, allowedMentions });
+    }
+
+    if (buffer.length != 0 && dirty) {
+        current.edit({ content: buffer, allowedMentions });
+    }
+}
 
 if (!init()) throw new Error("Failed to initialize WASM");
 client.login(process.env["DISCORD_TOKEN"]);

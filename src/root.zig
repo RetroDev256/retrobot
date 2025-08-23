@@ -1,5 +1,4 @@
 const std = @import("std");
-const ai = @import("ai.zig");
 const acr = @import("acr.zig");
 const api = @import("api.zig");
 const rand = @import("rand.zig");
@@ -54,7 +53,6 @@ fn messageCreateInner() !void {
     try handleNoU(&data);
     try handlePing(&data);
     try handleAsk(&data);
-    try ai.handle(&data);
     try rand.handle(&data);
     try acr.handle(&data);
     try block.handle(&data);
