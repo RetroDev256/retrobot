@@ -155,9 +155,9 @@ async function handleAiRequest(
         },
     });
 
-    let completed_queue: string[] = [];
     let last_time = Date.now();
     let buffer: string = "";
+    let dirty: boolean = false;
 
     for await (const chunk of response) {
         const content = chunk.message.content;
@@ -165,29 +165,23 @@ async function handleAiRequest(
 
         if (sum_length <= 2000) {
             buffer += content;
+            dirty = true;
         } else {
-            completed_queue.push(buffer);
-            buffer = content;
-        }
-
-        if (Date.now() - last_time >= 1000) {
-            const content = completed_queue.shift();
-            if (content !== undefined) {
-                current = await current.reply({ content, allowedMentions });
-            } else {
-                current.edit({ content: buffer, allowedMentions });
-            }
+            if (dirty) current.edit({ content: buffer, allowedMentions });
+            current = await current.reply({ content, allowedMentions });
             last_time = Date.now();
+            buffer = content;
+            dirty = false;
+        }
+
+        if (dirty && Date.now() - last_time >= 1250) {
+            current.edit({ content: buffer, allowedMentions });
+            last_time = Date.now();
+            dirty = false;
         }
     }
 
-    while (true) {
-        const content = completed_queue.shift();
-        if (content === undefined) break;
-        current = await current.reply({ content, allowedMentions });
-    }
-
-    if (buffer.length != 0) {
+    if (dirty) {
         current.edit({ content: buffer, allowedMentions });
     }
 }
