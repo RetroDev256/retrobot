@@ -145,7 +145,7 @@ async function handleAiRequest(
     let current: Message = await message.reply("...");
 
     const response = await ollama.chat({
-        model: "gemma3:12b",
+        model: "gemma3:270m",
         messages: [{ role: "user", content: prompt }],
         stream: true,
         keep_alive: -1,
