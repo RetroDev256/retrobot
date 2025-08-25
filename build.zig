@@ -27,9 +27,16 @@ pub fn build(b: *std.Build) void {
     // Build and install WASM artifact
     const install_wasm = b.addInstallArtifact(wasm, .{});
 
-    // Add or update discord.js & ollama
-    const discord_add = b.addSystemCommand(&.{ "bun", "add", "discord.js" });
-    const ollama_add = b.addSystemCommand(&.{ "bun", "add", "ollama" });
+    // Add or update discord.js & ollama & gemini
+    const discord_add = b.addSystemCommand(
+        &.{ "bun", "add", "discord.js" },
+    );
+    const ollama_add = b.addSystemCommand(
+        &.{ "bun", "add", "ollama" },
+    );
+    const gemini_add = b.addSystemCommand(
+        &.{ "bun", "add", "@google/generative-ai" },
+    );
 
     // Build typescript source
     const ts_source = try b.build_root.join(b.allocator, &.{"src/main.ts"});
@@ -39,6 +46,7 @@ pub fn build(b: *std.Build) void {
     });
     bun_build.step.dependOn(&discord_add.step);
     bun_build.step.dependOn(&ollama_add.step);
+    bun_build.step.dependOn(&gemini_add.step);
     b.default_step.dependOn(&bun_build.step);
 
     // Copy .env to output directory
@@ -54,7 +62,11 @@ pub fn build(b: *std.Build) void {
     b.default_step.dependOn(&words_copy.step);
 
     // Optimize WASM binary using wasm-opt
-    const wasm_path = try std.fmt.allocPrint(b.allocator, "{s}/retrobot.wasm", .{b.exe_dir});
+    const wasm_path = try std.fmt.allocPrint(
+        b.allocator,
+        "{s}/retrobot.wasm",
+        .{b.exe_dir},
+    );
     defer b.allocator.free(wasm_path);
     const wasm_opt = b.addSystemCommand(&.{
         "wasm-opt",

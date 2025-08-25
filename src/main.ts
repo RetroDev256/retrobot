@@ -1,14 +1,7 @@
-import {
-    Client,
-    Message,
-    Partials,
-    GatewayIntentBits,
-    type OmitPartialGroupDMChannel,
-} from "discord.js";
+import { Client, Message, Partials, GatewayIntentBits } from "discord.js";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import ollama from "ollama";
 import * as fs from "fs";
-
-const allowedMentions = { parse: [], repliedUser: true };
 
 const client = new Client({
     intents: Object.values(GatewayIntentBits) as GatewayIntentBits[],
@@ -85,7 +78,7 @@ const env = {
                 const channel = await client.channels.fetch(channel_id);
                 if (!channel || !("messages" in channel)) return;
                 const message = await channel.messages.fetch(message_id);
-                await message.reply({ content, allowedMentions });
+                await safeReply(message, content);
             })();
         } catch (err) {
             console.log("Error: " + String(err));
@@ -135,55 +128,124 @@ client.on("messageCreate", (message) => {
     }
 });
 
-async function handleAiRequest(
-    message: OmitPartialGroupDMChannel<Message<boolean>>
-) {
+const generative_ai = new GoogleGenerativeAI(process.env["GEMINI_API_KEY"]!);
+const gemini_model = generative_ai.getGenerativeModel({
+    model: "gemini-2.5-flash",
+});
+
+async function handleAiRequest(message: Message) {
     if (message.author.bot) return;
     if (!message.content.startsWith(".ai ")) return;
     const prompt = message.content.slice(4);
 
-    let current: Message = await message.reply("...");
+    try {
+        const result = await gemini_model.generateContentStream(prompt);
+        const stream = adaptGeminiStream(result.stream);
+        await aiStreamResponse(message, stream);
+    } catch (err) {
+        console.log("Warning: " + String(err));
+        await safeReply(message, "Gemini API is rate limited - using Ollama.");
 
-    const response = await ollama.chat({
-        model: "llama3.2:3b",
-        messages: [{ role: "user", content: prompt }],
-        stream: true,
-        keep_alive: -1,
-        options: {
-            temperature: 0.7,
-            num_ctx: 32_768,
-        },
-    });
+        const response = await ollama.chat({
+            model: "llama3.2:3b",
+            messages: [{ role: "user", content: prompt }],
+            stream: true,
+            keep_alive: -1,
+            options: {
+                temperature: 0.7,
+                num_ctx: 32_768,
+            },
+        });
 
+        const stream = adaptOllamaStream(response);
+        await aiStreamResponse(message, stream);
+    }
+}
+
+// Adapt response from streaming gemini chat for aiStreamResponse
+async function* adaptGeminiStream(stream: any) {
+    for await (const segment of stream) {
+        yield segment.text();
+    }
+}
+
+// Adapt response from streaming ollama.chat for aiStreamResponse
+async function* adaptOllamaStream(stream: any) {
+    for await (const segment of stream) {
+        yield segment.message.content;
+    }
+}
+
+async function aiStreamResponse(message: Message, stream: any) {
+    let current = await safeReply(message, "Loading...");
     let last_time = Date.now();
     let buffer: string = "";
-    let dirty: boolean = false;
 
-    for await (const chunk of response) {
-        const content = chunk.message.content;
-        const sum_length = content.length + buffer.length;
+    for await (const segment of stream) {
+        buffer += segment;
 
-        if (sum_length <= 2000) {
-            buffer += content;
-            dirty = true;
+        if (buffer.length > 2000) {
+            const sliced = messageSlice(buffer);
+            await safeEdit(current, sliced[0]!);
+
+            for (let i = 1; i < sliced.length; i += 1) {
+                current = await safeReply(current, sliced[i]!);
+            }
+
+            buffer = sliced[sliced.length - 1]!;
+            last_time = Date.now();
+        }
+
+        if (Date.now() - last_time >= 1000) {
+            if (await safeEdit(current, buffer)) {
+                last_time = Date.now();
+            }
+        }
+    }
+
+    await safeEdit(current, buffer);
+}
+
+// Splits a string into one or more message contents. Tries to
+// split at newline, otherwise word, otherwise 2000 characters.
+function messageSlice(message: string): string[] {
+    let messages: string[] = [];
+    let remaining: string = message;
+
+    while (remaining.length != 0) {
+        const limit = Math.min(remaining.length, 2000);
+        const consideration = remaining.slice(0, limit);
+        const last_newline = consideration.lastIndexOf("\n");
+        const last_space = consideration.lastIndexOf(" ");
+
+        if (last_newline > 1872) {
+            messages.push(remaining.slice(0, last_newline));
+            remaining = remaining.slice(last_newline + 1);
+        } else if (last_space > 1968) {
+            messages.push(remaining.slice(0, last_space));
+            remaining = remaining.slice(last_space + 1);
         } else {
-            if (dirty) current.edit({ content: buffer, allowedMentions });
-            current = await current.reply({ content, allowedMentions });
-            last_time = Date.now();
-            buffer = content;
-            dirty = false;
-        }
-
-        if (dirty && Date.now() - last_time >= 1250) {
-            current.edit({ content: buffer, allowedMentions });
-            last_time = Date.now();
-            dirty = false;
+            messages.push(remaining.slice(0, limit));
+            remaining = remaining.slice(limit);
         }
     }
 
-    if (dirty) {
-        current.edit({ content: buffer, allowedMentions });
-    }
+    return messages;
+}
+
+// Disable unwanted pings while replying to a message
+async function safeReply(message: Message, content: string) {
+    const allowedMentions = { parse: [], repliedUser: true };
+    return message.reply({ content, allowedMentions });
+}
+
+// Memoize api calls for message edits and disable unwanted pings
+// Returns true if the api call was sent, otherwise returns false
+async function safeEdit(message: Message, content: string) {
+    if (message.content === content) return false;
+    const allowedMentions = { parse: [], repliedUser: true };
+    await message.edit({ content, allowedMentions });
+    return true;
 }
 
 if (!init()) throw new Error("Failed to initialize WASM");
