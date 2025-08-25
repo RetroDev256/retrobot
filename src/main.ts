@@ -214,8 +214,7 @@ function messageSlice(message: string): string[] {
 
     while (remaining.length != 0) {
         const max_len = 2000 - "```abc\n".length;
-        const rem_len = remaining.length;
-        const limit = Math.min(rem_len, max_len);
+        const limit = Math.min(remaining.length, max_len);
 
         const consideration = remaining.slice(0, limit);
         const newline = consideration.lastIndexOf("\n");
@@ -223,9 +222,9 @@ function messageSlice(message: string): string[] {
 
         let split = limit;
 
-        if (newline > Math.max(1, rem_len - 256)) {
+        if (newline > Math.max(0, max_len - 256)) {
             split = newline;
-        } else if (space > Math.max(1, rem_len - 128)) {
+        } else if (space > Math.max(0, max_len - 128)) {
             split = space;
         }
 
