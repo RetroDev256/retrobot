@@ -207,7 +207,7 @@ async function aiStreamResponse(message: Message, stream: any) {
 }
 
 // Splits a string into one or more message contents.
-// Split at a block, newline, word, then at 2000 characters.
+// Split at a block, newline, word, then near 2000 characters.
 function messageSlice(message: string): string[] {
     let messages: string[] = [];
     let remaining: string = message;
@@ -222,9 +222,9 @@ function messageSlice(message: string): string[] {
 
         let split = limit;
 
-        if (newline > Math.max(0, max_len - 256)) {
+        if (newline > max_len - 256) {
             split = newline;
-        } else if (space > Math.max(0, max_len - 128)) {
+        } else if (space > max_len - 12) {
             split = space;
         }
 
