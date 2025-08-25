@@ -207,26 +207,35 @@ async function aiStreamResponse(message: Message, stream: any) {
 }
 
 // Splits a string into one or more message contents. Tries to
-// split at newline, otherwise word, otherwise 2000 characters.
+// split at block, then newline, then word, then at 2000 characters.
 function messageSlice(message: string): string[] {
     let messages: string[] = [];
     let remaining: string = message;
 
     while (remaining.length != 0) {
-        const limit = Math.min(remaining.length, 2000);
+        const limit = Math.min(remaining.length, 1997);
         const consideration = remaining.slice(0, limit);
         const last_newline = consideration.lastIndexOf("\n");
         const last_space = consideration.lastIndexOf(" ");
 
-        if (last_newline > 1872) {
+        const blocks = remaining.match(/```/g);
+        const lang_idx = remaining.lastIndexOf("```") + 3;
+        const lang = remaining.slice(lang_idx).match(/^([a-z]{1,3})\n/);
+
+        if (last_newline > 1744) {
             messages.push(remaining.slice(0, last_newline));
             remaining = remaining.slice(last_newline + 1);
-        } else if (last_space > 1968) {
+        } else if (last_space > 1872) {
             messages.push(remaining.slice(0, last_space));
             remaining = remaining.slice(last_space + 1);
         } else {
             messages.push(remaining.slice(0, limit));
             remaining = remaining.slice(limit);
+        }
+
+        if ( (blocks || []).length %2 !== 0) {
+            const name = lang ? lang[1] : "";
+            remaining = "```" + name + "\n" + remaining;
         }
     }
 
