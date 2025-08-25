@@ -213,35 +213,42 @@ function messageSlice(message: string): string[] {
     let remaining: string = message;
 
     while (remaining.length != 0) {
-        const limit = Math.min(remaining.length, 1997);
-        const consideration = remaining.slice(0, limit);
-        const last_newline = consideration.lastIndexOf("\n");
-        const last_space = consideration.lastIndexOf(" ");
+        const max_len = 2000 - "```abc\n".length;
+        const limit = Math.min(remaining.length, max_len);
+        
+        let split = splitPreferIndex(limit, remaining);
+        messages.push(remaining.slice(0, split));
+        remaining = remaining.slice(split);
 
-        const blocks = consideration.match(/```/g);
-        const lang_idx = consideration.lastIndexOf("```") + 3;
-        const lang_string = consideration.slice(lang_idx);
-        const lang_name = lang_string.match(/^([a-z]{1,3})\n/);
+        if (split != remaining.length) {
+            const block = remaining.slice(0, limit);
+            const cb_matches = block.match(/```/g) || [];
+            const after_split = block.split("```")[cb_matches.length];
+            const lang_name = after_split?.match(/^([a-z]{1,3})\n/);
 
-        if (last_newline > 1744) {
-            messages.push(remaining.slice(0, last_newline));
-            remaining = remaining.slice(last_newline + 1);
-        } else if (last_space > 1872) {
-            messages.push(remaining.slice(0, last_space));
-            remaining = remaining.slice(last_space + 1);
-        } else {
-            messages.push(remaining.slice(0, limit));
-            remaining = remaining.slice(limit);
-        }
-
-        if ((blocks || []).length % 2 !== 0) {
-            messages.push(messages.pop() + "```");
-            const name = lang_name ? lang_name[1] : "";
-            remaining = "```" + name + "\n" + remaining;
+            if (cb_matches.length % 2 !== 0) {
+                messages.push(messages.pop() + "```");
+                const name = lang_name ? lang_name[1] : "";
+                remaining = "```" + name + "\n" + remaining;
+            }
         }
     }
 
     return messages;
+}
+
+function splitPreferIndex(limit: number, text: string) {
+    const consideration = text.slice(0, limit);
+    const newline = consideration.lastIndexOf("\n");
+    const space = consideration.lastIndexOf(" ");
+
+    if (newline > 0 && newline > limit - 256) {
+        return newline;
+    } else if (space > 0 && space > limit - 128) {
+        return space;
+    } else {
+        return limit;
+    }
 }
 
 // Disable unwanted pings while replying to a message
