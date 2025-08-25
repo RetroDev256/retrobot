@@ -206,8 +206,8 @@ async function aiStreamResponse(message: Message, stream: any) {
     await safeEdit(current, buffer);
 }
 
-// Splits a string into one or more message contents. Tries to
-// split at block, then newline, then word, then at 2000 characters.
+// Splits a string into one or more message contents.
+// Split at a block, newline, word, then at 2000 characters.
 function messageSlice(message: string): string[] {
     let messages: string[] = [];
     let remaining: string = message;
@@ -218,9 +218,10 @@ function messageSlice(message: string): string[] {
         const last_newline = consideration.lastIndexOf("\n");
         const last_space = consideration.lastIndexOf(" ");
 
-        const blocks = remaining.match(/```/g);
-        const lang_idx = remaining.lastIndexOf("```") + 3;
-        const lang = remaining.slice(lang_idx).match(/^([a-z]{1,3})\n/);
+        const blocks = consideration.match(/```/g);
+        const lang_idx = consideration.lastIndexOf("```") + 3;
+        const lang_string = consideration.slice(lang_idx);
+        const lang_name = lang_string.match(/^([a-z]{1,3})\n/);
 
         if (last_newline > 1744) {
             messages.push(remaining.slice(0, last_newline));
@@ -233,8 +234,9 @@ function messageSlice(message: string): string[] {
             remaining = remaining.slice(limit);
         }
 
-        if ( (blocks || []).length %2 !== 0) {
-            const name = lang ? lang[1] : "";
+        if ((blocks || []).length % 2 !== 0) {
+            messages.push(messages.pop() + "```");
+            const name = lang_name ? lang_name[1] : "";
             remaining = "```" + name + "\n" + remaining;
         }
     }
