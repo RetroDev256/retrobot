@@ -177,7 +177,7 @@ async function* adaptOllamaStream(stream: any) {
 }
 
 async function aiStreamResponse(message: Message, stream: any) {
-    let current = await safeReply(message, "Loading...");
+    let current = await safeReply(message, "-# Loading...");
     let last_time = Date.now();
     let buffer: string = "";
 
@@ -214,7 +214,8 @@ function messageSlice(message: string): string[] {
 
     while (remaining.length != 0) {
         const max_len = 2000 - "```abc\n".length;
-        const limit = Math.min(remaining.length, max_len);
+        const rem_len = remaining.length;
+        const limit = Math.min(rem_len, max_len);
 
         const consideration = remaining.slice(0, limit);
         const newline = consideration.lastIndexOf("\n");
@@ -222,9 +223,9 @@ function messageSlice(message: string): string[] {
 
         let split = limit;
 
-        if (newline > 0 && newline > limit - 256) {
+        if (newline > Math.max(1, rem_len - 256)) {
             split = newline;
-        } else if (space > 0 && space > limit - 128) {
+        } else if (space > Math.max(1, rem_len - 128)) {
             split = space;
         }
 
