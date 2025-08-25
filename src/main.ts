@@ -215,8 +215,19 @@ function messageSlice(message: string): string[] {
     while (remaining.length != 0) {
         const max_len = 2000 - "```abc\n".length;
         const limit = Math.min(remaining.length, max_len);
-        
-        let split = splitPreferIndex(limit, remaining);
+
+        const consideration = remaining.slice(0, limit);
+        const newline = consideration.lastIndexOf("\n");
+        const space = consideration.lastIndexOf(" ");
+
+        let split = limit;
+
+        if (newline > 0 && newline > limit - 256) {
+            split = newline;
+        } else if (space > 0 && space > limit - 128) {
+            split = space;
+        }
+
         messages.push(remaining.slice(0, split));
         remaining = remaining.slice(split);
 
@@ -235,20 +246,6 @@ function messageSlice(message: string): string[] {
     }
 
     return messages;
-}
-
-function splitPreferIndex(limit: number, text: string) {
-    const consideration = text.slice(0, limit);
-    const newline = consideration.lastIndexOf("\n");
-    const space = consideration.lastIndexOf(" ");
-
-    if (newline > 0 && newline > limit - 256) {
-        return newline;
-    } else if (space > 0 && space > limit - 128) {
-        return space;
-    } else {
-        return limit;
-    }
 }
 
 // Disable unwanted pings while replying to a message
