@@ -79,32 +79,35 @@ fn handleAsk(data: *const api.Message) !void {
     api.replyMessage(data.channel_id, data.message_id, reply);
 }
 
+const eight_ball: []const []const u8 = &.{
+    "It is certain.",
+    "It is decidedly so.",
+    "Without a doubt.",
+    "Yes – definitely.",
+    "You may rely on it.",
+    "As I see it, yes.",
+    "Most likely.",
+    "Outlook good.",
+    "Signs point to yes.",
+    "Yes.",
+    "Reply hazy, try again.",
+    "Ask again later.",
+    "Better not tell you now.",
+    "Cannot predict now.",
+    "Concentrate and ask again.",
+    "Don't count on it.",
+    "My reply is no.",
+    "My sources say no.",
+    "Outlook not so good.",
+    "Very doubtful.",
+};
+
 // respond to ".8ball ..." with a random 8 ball response
 fn handle8Ball(data: *const api.Message) !void {
     const command: []const u8 = cmd_prefix ++ "8ball";
     if (!tools.startsWithInsensitive(command, data.content)) return;
-    api.replyMessage(data.channel_id, data.message_id, .{
-        "It is certain.",
-        "It is decidedly so.",
-        "Without a doubt.",
-        "Yes – definitely.",
-        "You may rely on it.",
-        "As I see it, yes.",
-        "Most likely.",
-        "Outlook good.",
-        "Signs point to yes.",
-        "Yes.",
-        "Reply hazy, try again.",
-        "Ask again later.",
-        "Better not tell you now.",
-        "Cannot predict now.",
-        "Concentrate and ask again.",
-        "Don't count on it.",
-        "My reply is no.",
-        "My sources say no.",
-        "Outlook not so good.",
-        "Very doubtful.",
-    }[rand.csprng.int(u32) % 20]);
+    const response = eight_ball[rand.csprng.int(usize) % eight_ball.len];
+    api.replyMessage(data.channel_id, data.message_id, response);
 }
 
 comptime {

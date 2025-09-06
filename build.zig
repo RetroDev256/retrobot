@@ -41,8 +41,9 @@ pub fn build(b: *std.Build) void {
     // Build typescript source
     const ts_source = try b.build_root.join(b.allocator, &.{"src/main.ts"});
     const bun_build = b.addSystemCommand(&.{
-        "bun",     "build",    ts_source, "--outdir",
-        b.exe_dir, "--target", "bun",     "--sourcemap",
+        "bun",      "build",   ts_source,
+        "--outdir", b.exe_dir, "--target",
+        "bun", "--sourcemap", // "--minify",
     });
     bun_build.step.dependOn(&discord_add.step);
     bun_build.step.dependOn(&ollama_add.step);
