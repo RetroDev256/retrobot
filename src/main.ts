@@ -9,6 +9,7 @@ import {
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import ollama from "ollama";
 import * as fs from "fs";
+import { info } from "console";
 
 const client = new Client({
     intents: Object.values(GatewayIntentBits) as GatewayIntentBits[],
@@ -103,10 +104,12 @@ const messageCreate = exports["messageCreate"] as () => boolean;
 const init = exports["init"] as () => boolean;
 
 client.once("clientReady", async (client) => {
-    await debug(`Logged in as ${client.user?.tag}`);
+    let info_message = `Logged in as ${client.user?.tag}`;
     for (const guild of client.guilds.cache.values()) {
-        await debug(`- ${guild.name}: ${guild.memberCount} members`);
+        info_message += `\n - ${guild.name}: ${guild.memberCount} members`;
     }
+
+    await debug(info_message);
 });
 
 client.on("guildMemberAdd", async (member) => {
@@ -137,7 +140,7 @@ client.on("messageCreate", async (message) => {
 
 const generative_ai = new GoogleGenerativeAI(process.env["GEMINI_API_KEY"]!);
 const gemini_model = generative_ai.getGenerativeModel({
-    model: "gemini-2.5-pro",
+    model: "gemini-2.5-flash",
 });
 
 async function handleAiRequest(message: Message) {
@@ -151,17 +154,13 @@ async function handleAiRequest(message: Message) {
         await aiStreamResponse(message, stream);
     } catch (err) {
         await debug(String(err));
-        await safeReply(message, "Gemini API is rate limited - using Ollama.");
 
         const response = await ollama.chat({
-            model: "llama3.2:3b",
+            options: { temperature: 0.7, num_ctx: 32_768 },
             messages: [{ role: "user", content: prompt }],
-            stream: true,
+            model: "llama3.2:3b",
             keep_alive: -1,
-            options: {
-                temperature: 0.7,
-                num_ctx: 32_768,
-            },
+            stream: true,
         });
 
         const stream = adaptOllamaStream(response);
@@ -185,36 +184,43 @@ async function* adaptOllamaStream(stream: any) {
 
 async function aiStreamResponse(message: Message, stream: any) {
     let buffer: string = "";
-    
+    let to_send: string[] = [];
+    let last_time = Date.now();
+
     for await (const segment of stream) {
         buffer += segment;
 
-        const lines = buffer.split("\n");
-        buffer = lines[lines.length - 1]!;
-
-        for (let i = 0; i < lines.length - 1; i += 1) {
-            const line_len = lines[i]!.length;
-            const content = line_len == 0 ? "\n" : lines[i]!;
-            await safeSend(message.channel, content);
+        const line_split = buffer.split("\n");
+        buffer = line_split[line_split.length - 1]!;
+        for (let i = 0; i < line_split.length - 1; i += 1) {
+            if (line_split[i]!.trim().length === 0) continue;
+            if (line_split[i]!.startsWith("```")) continue;
+            to_send.push("-# " + line_split[i]!);
         }
 
-        while (buffer.length > 2000) {
-            const next = buffer.slice(0, 2000);
-            await safeSend(message.channel, next);
-            buffer = buffer.slice(2000);
+        while (Date.now() - last_time > 1000) {
+            const next_chunk = lineCollate(to_send, 2000);
+            if (next_chunk === undefined) break;
+            await safeSend(message.channel, next_chunk);
+            last_time = last_time + 1000;
         }
     }
 
-    if (buffer.length != 0) {
-        await safeSend(message.channel, buffer);
+    if (buffer.trim().length !== 0) {
+        to_send.push("-# " + buffer);
+    }
+
+    while (to_send.length > 0) {
+        const chunk = lineCollate(to_send, 2000)!;
+        await safeSend(message.channel, chunk);
     }
 }
 
 // Disable unwanted pings when sending a message
 async function safeSend(channel: Channel, content: string) {
-    const allowedMentions = { parse: [], repliedUser: true };
     const sendable = channel as SendableChannels;
-    return sendable.send({ content, allowedMentions });
+    const allowedMentions = { parse: [], repliedUser: true };
+    await sendable.send({ content, allowedMentions });
 }
 
 // Disable unwanted pings while replying to a message
@@ -223,11 +229,28 @@ async function safeReply(message: Message, content: string) {
     return message.reply({ content, allowedMentions });
 }
 
-async function debug(content: string) {
-    const dbg_content = "DEBUG: " + content;
-    console.log(dbg_content);
+// groups lines into the biggest message that can be formed below len
+function lineCollate(list: string[], len: number): string | undefined {
+    const first: string | undefined = list.shift();
+    if (first === undefined) return undefined;
 
+    if (first.length > len) {
+        list.unshift("-# " + first.slice(len));
+        return first.slice(0, len);
+    }
+
+    let sum: string = first;
+    while (true) {
+        if (list.length === 0) return sum;
+        if (sum.length + list[0]!.length >= len) return sum;
+        sum = sum + "\n" + list.shift()!;
+    }
+}
+
+async function debug(content: string) {
+    console.log("DEBUG: " + content);
     const bot_testing = "896098449672527963";
+    const dbg_content = "```\nDEBUG: " + content + "\n```";
     const channel = await client.channels.fetch(bot_testing);
     if (channel !== null) await safeSend(channel, dbg_content);
 }
