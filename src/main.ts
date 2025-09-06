@@ -49,7 +49,7 @@ const env = {
             pushString(fs.readFileSync(path, "utf8"));
             return true;
         } catch (err) {
-            console.log("Error: " + String(err));
+            debug(String(err));
             return false;
         }
     },
@@ -58,7 +58,7 @@ const env = {
             const output = readString(out_ptr, out_len);
             process.stdout.write(output);
         } catch (err) {
-            console.log("Error: " + String(err));
+            debug(String(err));
         }
     },
     fillRandomApi: (dest_ptr: number, dest_len: number): void => {
@@ -66,7 +66,7 @@ const env = {
             const bytes = new Uint8Array(memory.buffer, dest_ptr, dest_len);
             crypto.getRandomValues(bytes);
         } catch (err) {
-            console.log("Error: " + String(err));
+            debug(String(err));
         }
     },
     replyMessageApi: (
@@ -88,7 +88,7 @@ const env = {
                 await safeReply(message, content);
             })();
         } catch (err) {
-            console.log("Error: " + String(err));
+            debug(String(err));
         }
     },
 };
@@ -102,10 +102,10 @@ const allocateMem = exports["allocateMem"] as (len: number) => number;
 const messageCreate = exports["messageCreate"] as () => boolean;
 const init = exports["init"] as () => boolean;
 
-client.once("clientReady", (client) => {
-    console.log("Logged in as", client.user?.tag);
+client.once("clientReady", async (client) => {
+    await debug(`Logged in as ${client.user?.tag}`);
     for (const guild of client.guilds.cache.values()) {
-        console.log(`- ${guild.name}: ${guild.memberCount} members`);
+        await debug(`- ${guild.name}: ${guild.memberCount} members`);
     }
 });
 
@@ -115,7 +115,7 @@ client.on("guildMemberAdd", async (member) => {
     await channel.send(`Welcome ${member}! o/`);
 });
 
-client.on("messageCreate", (message) => {
+client.on("messageCreate", async (message) => {
     try {
         pushString(
             JSON.stringify({
@@ -127,11 +127,11 @@ client.on("messageCreate", (message) => {
             } as MessageApi)
         );
         if (!messageCreate()) {
-            console.log("Error: messageCreate failed");
+            await debug("messageCreate failed");
         }
         handleAiRequest(message);
     } catch (err) {
-        console.log("Error: " + String(err));
+        await debug(String(err));
     }
 });
 
@@ -150,7 +150,7 @@ async function handleAiRequest(message: Message) {
         const stream = adaptGeminiStream(result.stream);
         await aiStreamResponse(message, stream);
     } catch (err) {
-        console.log("Warning: " + String(err));
+        await debug(String(err));
         await safeReply(message, "Gemini API is rate limited - using Ollama.");
 
         const response = await ollama.chat({
@@ -184,9 +184,8 @@ async function* adaptOllamaStream(stream: any) {
 }
 
 async function aiStreamResponse(message: Message, stream: any) {
-    await safeReply(message, "-# Loading...");
     let buffer: string = "";
-
+    
     for await (const segment of stream) {
         buffer += segment;
 
@@ -194,7 +193,9 @@ async function aiStreamResponse(message: Message, stream: any) {
         buffer = lines[lines.length - 1]!;
 
         for (let i = 0; i < lines.length - 1; i += 1) {
-            await safeSend(message.channel, lines[i]!);
+            const line_len = lines[i]!.length;
+            const content = line_len == 0 ? "\n" : lines[i]!;
+            await safeSend(message.channel, content);
         }
 
         while (buffer.length > 2000) {
@@ -203,8 +204,10 @@ async function aiStreamResponse(message: Message, stream: any) {
             buffer = buffer.slice(2000);
         }
     }
-    
-    await safeSend(message.channel, buffer);
+
+    if (buffer.length != 0) {
+        await safeSend(message.channel, buffer);
+    }
 }
 
 // Disable unwanted pings when sending a message
@@ -218,6 +221,15 @@ async function safeSend(channel: Channel, content: string) {
 async function safeReply(message: Message, content: string) {
     const allowedMentions = { parse: [], repliedUser: true };
     return message.reply({ content, allowedMentions });
+}
+
+async function debug(content: string) {
+    const dbg_content = "DEBUG: " + content;
+    console.log(dbg_content);
+
+    const bot_testing = "896098449672527963";
+    const channel = await client.channels.fetch(bot_testing);
+    if (channel !== null) await safeSend(channel, dbg_content);
 }
 
 // // Memoize api calls for message edits and disable unwanted pings
