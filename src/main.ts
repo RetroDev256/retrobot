@@ -1,4 +1,11 @@
-import { Client, Message, Partials, GatewayIntentBits } from "discord.js";
+import {
+    Client,
+    Message,
+    Partials,
+    GatewayIntentBits,
+    type Channel,
+    type SendableChannels,
+} from "discord.js";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import ollama from "ollama";
 import * as fs from "fs";
@@ -130,7 +137,7 @@ client.on("messageCreate", (message) => {
 
 const generative_ai = new GoogleGenerativeAI(process.env["GEMINI_API_KEY"]!);
 const gemini_model = generative_ai.getGenerativeModel({
-    model: "gemini-2.5-flash",
+    model: "gemini-2.5-pro",
 });
 
 async function handleAiRequest(message: Message) {
@@ -177,75 +184,34 @@ async function* adaptOllamaStream(stream: any) {
 }
 
 async function aiStreamResponse(message: Message, stream: any) {
-    let current = await safeReply(message, "-# Loading...");
-    let last_time = Date.now();
+    await safeReply(message, "-# Loading...");
     let buffer: string = "";
 
     for await (const segment of stream) {
         buffer += segment;
 
-        if (buffer.length > 2000) {
-            const sliced = messageSlice(buffer);
-            await safeEdit(current, sliced[0]!);
+        const lines = buffer.split("\n");
+        buffer = lines[lines.length - 1]!;
 
-            for (let i = 1; i < sliced.length; i += 1) {
-                current = await safeReply(current, sliced[i]!);
-            }
-
-            buffer = sliced[sliced.length - 1]!;
-            last_time = Date.now();
+        for (let i = 0; i < lines.length - 1; i += 1) {
+            await safeSend(message.channel, lines[i]!);
         }
 
-        if (Date.now() - last_time >= 1000) {
-            if (await safeEdit(current, buffer)) {
-                last_time = Date.now();
-            }
+        while (buffer.length > 2000) {
+            const next = buffer.slice(0, 2000);
+            await safeSend(message.channel, next);
+            buffer = buffer.slice(2000);
         }
     }
-
-    await safeEdit(current, buffer);
+    
+    await safeSend(message.channel, buffer);
 }
 
-// Splits a string into one or more message contents.
-// Split at a block, newline, word, then near 2000 characters.
-function messageSlice(message: string): string[] {
-    let messages: string[] = [];
-    let remaining: string = message;
-
-    while (remaining.length != 0) {
-        const max_len = 2000 - "```abc\n".length;
-        const limit = Math.min(remaining.length, max_len);
-
-        const consideration = remaining.slice(0, limit);
-        const newline = consideration.lastIndexOf("\n");
-        const space = consideration.lastIndexOf(" ");
-
-        let split = limit;
-
-        if (newline > max_len - 256) {
-            split = newline;
-        } else if (space > max_len - 12) {
-            split = space;
-        }
-
-        messages.push(remaining.slice(0, split));
-        remaining = remaining.slice(split);
-
-        if (split != remaining.length) {
-            const block = remaining.slice(0, limit);
-            const cb_matches = block.match(/```/g) || [];
-            const after_split = block.split("```")[cb_matches.length];
-            const lang_name = after_split?.match(/^([a-z]{1,3})\n/);
-
-            if (cb_matches.length % 2 !== 0) {
-                messages.push(messages.pop() + "```");
-                const name = lang_name ? lang_name[1] : "";
-                remaining = "```" + name + "\n" + remaining;
-            }
-        }
-    }
-
-    return messages;
+// Disable unwanted pings when sending a message
+async function safeSend(channel: Channel, content: string) {
+    const allowedMentions = { parse: [], repliedUser: true };
+    const sendable = channel as SendableChannels;
+    return sendable.send({ content, allowedMentions });
 }
 
 // Disable unwanted pings while replying to a message
@@ -254,14 +220,14 @@ async function safeReply(message: Message, content: string) {
     return message.reply({ content, allowedMentions });
 }
 
-// Memoize api calls for message edits and disable unwanted pings
-// Returns true if the api call was sent, otherwise returns false
-async function safeEdit(message: Message, content: string) {
-    if (message.content === content) return false;
-    const allowedMentions = { parse: [], repliedUser: true };
-    await message.edit({ content, allowedMentions });
-    return true;
-}
+// // Memoize api calls for message edits and disable unwanted pings
+// // Returns true if the api call was sent, otherwise returns false
+// async function safeEdit(message: Message, content: string) {
+//     if (message.content === content) return false;
+//     const allowedMentions = { parse: [], repliedUser: true };
+//     await message.edit({ content, allowedMentions });
+//     return true;
+// }
 
 if (!init()) throw new Error("Failed to initialize WASM");
 client.login(process.env["DISCORD_TOKEN"]);

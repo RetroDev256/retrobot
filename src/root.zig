@@ -53,6 +53,7 @@ fn messageCreateInner() !void {
     try handleNoU(&data);
     try handlePing(&data);
     try handleAsk(&data);
+    try handle8Ball(&data);
     try rand.handle(&data);
     try acr.handle(&data);
     try block.handle(&data);
@@ -76,6 +77,34 @@ fn handleAsk(data: *const api.Message) !void {
     if (!tools.startsWithInsensitive(command, data.content)) return;
     const reply = if (rand.csprng.boolean()) "yes" else "no";
     api.replyMessage(data.channel_id, data.message_id, reply);
+}
+
+// respond to ".8ball ..." with a random 8 ball response
+fn handle8Ball(data: *const api.Message) !void {
+    const command: []const u8 = cmd_prefix ++ "8ball";
+    if (!tools.startsWithInsensitive(command, data.content)) return;
+    api.replyMessage(data.channel_id, data.message_id, .{
+        "It is certain.",
+        "It is decidedly so.",
+        "Without a doubt.",
+        "Yes – definitely.",
+        "You may rely on it.",
+        "As I see it, yes.",
+        "Most likely.",
+        "Outlook good.",
+        "Signs point to yes.",
+        "Yes.",
+        "Reply hazy, try again.",
+        "Ask again later.",
+        "Better not tell you now.",
+        "Cannot predict now.",
+        "Concentrate and ask again.",
+        "Don't count on it.",
+        "My reply is no.",
+        "My sources say no.",
+        "Outlook not so good.",
+        "Very doubtful.",
+    }[rand.csprng.int(u32) % 20]);
 }
 
 comptime {
