@@ -9,7 +9,6 @@ import {
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import ollama from "ollama";
 import * as fs from "fs";
-import { info } from "console";
 
 const client = new Client({
     intents: Object.values(GatewayIntentBits) as GatewayIntentBits[],
