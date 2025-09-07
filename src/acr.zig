@@ -27,7 +27,7 @@ pub fn handle(data: *const api.Message) !void {
     const command = root.cmd_prefix ++ "acr ";
     if (!std.mem.startsWith(u8, data.content, command)) return;
 
-    var buffer: [2000]u8 = undefined;
+    var buffer: [4096]u8 = undefined;
     var writer: std.Io.Writer = .fixed(&buffer);
 
     for (data.content[command.len..]) |byte| {

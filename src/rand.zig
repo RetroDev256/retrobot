@@ -39,14 +39,14 @@ const Base = enum {
     }
 
     /// Max number of bytes to store a number that could
-    /// be represented in 2000 characters of the base.
+    /// be represented in 4096 characters of the base.
     fn bufferBytes(comptime self: @This()) comptime_int {
         return switch (self) {
-            .bin => 250,
-            .oct => 750,
-            .dec => 831,
-            .hex => 1000,
-            .b64 => 1500,
+            .bin => 512,
+            .oct => 1536,
+            .dec => 1701,
+            .hex => 2048,
+            .b64 => 3072,
         };
     }
 
@@ -138,7 +138,7 @@ pub fn handle(data: *const api.Message) !void {
         }
     }
 
-    var buffer: [2000]u8 = undefined;
+    var buffer: [4096]u8 = undefined;
     var writer: Writer = .fixed(&buffer);
 
     const base: Base = base_arg orelse .hex;
@@ -182,7 +182,7 @@ fn randDispatch(writer: *Writer, rt_base: Base, bits: u16) !void {
             }
 
             // Convert the random bytes to digits of the correct base
-            var char_stack: [2000]u8 = undefined;
+            var char_stack: [4096]u8 = undefined;
             for (0..display_bytes) |idx| {
                 const rev_idx = char_stack.len - idx - 1;
                 const digit = base.reduce(buffer[0..used_bytes]);

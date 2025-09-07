@@ -193,12 +193,11 @@ async function aiStreamResponse(message: Message, stream: any) {
         buffer = line_split[line_split.length - 1]!;
         for (let i = 0; i < line_split.length - 1; i += 1) {
             if (line_split[i]!.trim().length === 0) continue;
-            if (line_split[i]!.startsWith("```")) continue;
-            to_send.push("-# " + line_split[i]!);
+            to_send.push(line_split[i]!);
         }
 
         while (Date.now() - last_time > 1000) {
-            const next_chunk = lineCollate(to_send, 2000);
+            const next_chunk = lineCollate(to_send, 4096);
             if (next_chunk === undefined) break;
             await safeSend(message.channel, next_chunk);
             last_time = last_time + 1000;
@@ -206,11 +205,11 @@ async function aiStreamResponse(message: Message, stream: any) {
     }
 
     if (buffer.trim().length !== 0) {
-        to_send.push("-# " + buffer);
+        to_send.push(buffer);
     }
 
     while (to_send.length > 0) {
-        const chunk = lineCollate(to_send, 2000)!;
+        const chunk = lineCollate(to_send, 4096)!;
         await safeSend(message.channel, chunk);
     }
 }
@@ -219,13 +218,19 @@ async function aiStreamResponse(message: Message, stream: any) {
 async function safeSend(channel: Channel, content: string) {
     const sendable = channel as SendableChannels;
     const allowedMentions = { parse: [], repliedUser: true };
-    await sendable.send({ content, allowedMentions });
+    await sendable.send({
+        embeds: [{ description: content }],
+        allowedMentions,
+    });
 }
 
 // Disable unwanted pings while replying to a message
 async function safeReply(message: Message, content: string) {
     const allowedMentions = { parse: [], repliedUser: true };
-    return message.reply({ content, allowedMentions });
+    return message.reply({
+        embeds: [{ description: content }],
+        allowedMentions,
+    });
 }
 
 // groups lines into the biggest message that can be formed below len
@@ -234,7 +239,7 @@ function lineCollate(list: string[], len: number): string | undefined {
     if (first === undefined) return undefined;
 
     if (first.length > len) {
-        list.unshift("-# " + first.slice(len));
+        list.unshift(first.slice(len));
         return first.slice(0, len);
     }
 

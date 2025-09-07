@@ -20,7 +20,7 @@ pub fn handle(data: *const api.Message) !void {
 
         // Highlight & reply the block using ANSI
         const zig_code = data.content[block..end.?];
-        var buffer: [2000]u8 = undefined;
+        var buffer: [4096]u8 = undefined;
         const ansi = try zigToAnsi(zig_code, &buffer);
         api.replyMessage(data.channel_id, data.message_id, ansi);
     }
@@ -52,10 +52,10 @@ const Color = enum {
 };
 
 /// Parses zig code and colors the result with ansi escape sequences
-fn zigToAnsi(zig_code: []const u8, buffer: *[2000]u8) ![]const u8 {
+fn zigToAnsi(zig_code: []const u8, buffer: *[4096]u8) ![]const u8 {
     // This null delimiter simplifies our parser.
-    std.debug.assert(zig_code.len < 2000);
-    var delimited: [2000]u8 = undefined;
+    std.debug.assert(zig_code.len < 4096);
+    var delimited: [4096]u8 = undefined;
     @memcpy(&delimited, zig_code);
     delimited[zig_code.len] = 0;
     const source_len = zig_code.len + 1;
