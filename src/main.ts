@@ -182,9 +182,9 @@ async function* adaptOllamaStream(stream: any) {
 }
 
 async function aiStreamResponse(message: Message, stream: any) {
-    let buffer: string = "";
+    let last_time = Date.now() - 1000;
     let to_send: string[] = [];
-    let last_time = Date.now();
+    let buffer: string = "";
 
     for await (const segment of stream) {
         buffer += segment;
@@ -218,7 +218,7 @@ async function aiStreamResponse(message: Message, stream: any) {
 async function safeSend(channel: Channel, content: string) {
     const sendable = channel as SendableChannels;
     const allowedMentions = { parse: [], repliedUser: true };
-    await sendable.send({
+    return sendable.send({
         embeds: [{ description: content }],
         allowedMentions,
     });
