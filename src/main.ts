@@ -181,56 +181,63 @@ async function* adaptOllamaStream(stream: any) {
     }
 }
 
+async function aiStreamQueue(state: {
+    response: Message;
+    not_sent: string[];
+    buffer: string;
+}): Promise<boolean> {
+    const first = state.not_sent.shift();
+    if (first === undefined) return false;
+
+    if (buffer.length + first.length >= 4096) {
+        state.response = await safeSend(state.response.channel, first);
+        state.buffer = first;
+        return true;
+    }
+
+    state.buffer = state.buffer + "\n" + first;
+    while (state.not_sent.length > 0) {
+        if (buffer.length + state.not_sent[0]!.length >= 4096) break;
+        state.buffer = state.buffer + "\n" + state.not_sent.shift()!;
+    }
+
+    return await safeEdit(state.response, state.buffer);
+}
+
 async function aiStreamResponse(message: Message, stream: any) {
-    let last_time = Date.now() - 1000;
-    let to_send: string[] = [];
-    let buffer: string = "";
+    const state = {
+        response: await safeReply(message, "Loading..."),
+        not_sent: [] as string[],
+        buffer: "" as string,
+    };
+
+    let not_parsed: string = "";
+    let timer = Date.now();
 
     for await (const segment of stream) {
-        buffer += segment;
+        not_parsed += segment;
 
-        const line_split = buffer.split("\n");
-        buffer = line_split[line_split.length - 1]!;
+        const line_split: string[] = not_parsed.split("\n");
+        not_parsed = line_split[line_split.length - 1]!;
         for (let i = 0; i < line_split.length - 1; i += 1) {
-            if (line_split[i]!.trim().length === 0) continue;
-            to_send.push(line_split[i]!);
+            while (line_split[i]!.trimStart().length > 0) {
+                state.not_sent.push(line_split[i]!.slice(0, 4096));
+                line_split[i]! = line_split[i]!.slice(4096);
+            }
         }
 
-        while (Date.now() - last_time > 1000) {
-            const next_chunk = lineCollate(to_send, 4096);
-            if (next_chunk === undefined) break;
-            await safeSend(message.channel, next_chunk);
-            last_time = last_time + 1000;
+        while (Date.now() - timer > 1000) {
+            if (await aiStreamQueue(state)) {
+                timer = timer + 1000;
+            } else break;
         }
     }
 
-    if (buffer.trim().length !== 0) {
-        to_send.push(buffer);
+    if (not_parsed.trim().length !== 0) {
+        state.not_sent.push(not_parsed);
     }
 
-    while (to_send.length > 0) {
-        const chunk = lineCollate(to_send, 4096)!;
-        await safeSend(message.channel, chunk);
-    }
-}
-
-// Disable unwanted pings when sending a message
-async function safeSend(channel: Channel, content: string) {
-    const sendable = channel as SendableChannels;
-    const allowedMentions = { parse: [], repliedUser: true };
-    return sendable.send({
-        embeds: [{ description: content }],
-        allowedMentions,
-    });
-}
-
-// Disable unwanted pings while replying to a message
-async function safeReply(message: Message, content: string) {
-    const allowedMentions = { parse: [], repliedUser: true };
-    return message.reply({
-        embeds: [{ description: content }],
-        allowedMentions,
-    });
+    while (await aiStreamQueue(state)) {}
 }
 
 // groups lines into the biggest message that can be formed below len
@@ -251,6 +258,30 @@ function lineCollate(list: string[], len: number): string | undefined {
     }
 }
 
+// Disable unwanted pings when sending a message
+async function safeSend(channel: Channel, content: string) {
+    const embeds = [{ description: content }];
+    const allowedMentions = { parse: [], repliedUser: true };
+    return (channel as SendableChannels).send({ embeds, allowedMentions });
+}
+
+// Disable unwanted pings while replying to a message
+async function safeReply(message: Message, content: string) {
+    const embeds = [{ description: content }];
+    const allowedMentions = { parse: [], repliedUser: true };
+    return message.reply({ embeds, allowedMentions });
+}
+
+// Memoize api calls for message edits and disable unwanted pings
+// Returns true if the api call was sent, otherwise returns false
+async function safeEdit(message: Message, content: string) {
+    if (message.content === content) return false;
+    const embeds = [{ description: content }];
+    const allowedMentions = { parse: [], repliedUser: true };
+    await message.edit({ embeds, allowedMentions });
+    return true;
+}
+
 async function debug(content: string) {
     console.log("DEBUG: " + content);
     const bot_testing = "896098449672527963";
@@ -258,15 +289,6 @@ async function debug(content: string) {
     const channel = await client.channels.fetch(bot_testing);
     if (channel !== null) await safeSend(channel, dbg_content);
 }
-
-// // Memoize api calls for message edits and disable unwanted pings
-// // Returns true if the api call was sent, otherwise returns false
-// async function safeEdit(message: Message, content: string) {
-//     if (message.content === content) return false;
-//     const allowedMentions = { parse: [], repliedUser: true };
-//     await message.edit({ content, allowedMentions });
-//     return true;
-// }
 
 if (!init()) throw new Error("Failed to initialize WASM");
 client.login(process.env["DISCORD_TOKEN"]);
