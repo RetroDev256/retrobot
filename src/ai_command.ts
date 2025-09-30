@@ -1,49 +1,39 @@
-import { type CacheType, SlashCommandBuilder, ChatInputCommandInteraction, Message, MessageFlags } from "discord.js";
+import { SlashCommandBuilder, MessageFlags } from "discord.js";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import ollama from "ollama";
 
+const model_option = "gemini-2.5-flash";
 const generative_ai = new GoogleGenerativeAI(process.env["GEMINI_API_KEY"]!);
-const gemini_model = generative_ai.getGenerativeModel({
-    model: "gemini-2.5-flash",
-});
+const gemini_model = generative_ai.getGenerativeModel({ model: model_option });
 
-const aiCommandBuilder = new SlashCommandBuilder()
+const ai_command_builder = new SlashCommandBuilder()
     .setName("ai")
     .setDescription("Prompt Gemini 2.5-flash, or fallback to llama3.2:3b.")
     .addStringOption((option) =>
-        option.setName("prompt").setDescription("A question or prompt for the LLM").setRequired(true)
+        option
+            .setName("prompt")
+            .setRequired(true)
+            .setDescription("A question or prompt for the LLM")
     );
 
-async function execute(interaction: ChatInputCommandInteraction<CacheType>) {
-    // Send "Bot is thinking..." and the edited reply only visible to the user.
+// Handle generating, adapting, and sending async LLM text streams
+async function execute(interaction: any) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-
-    // Get the prompt from the user's command input
     const prompt = interaction.options.getString("prompt", true);
 
     try {
-        // First, try to get a response from Gemini
         const result = await gemini_model.generateContentStream(prompt);
         const stream = adaptGeminiStream(result.stream);
         await aiStreamResponse(interaction, stream);
-    } catch (err) {
-        console.error("Gemini API failed, falling back to Ollama.", err);
-
-        try {
-            // If Gemini fails, fall back to the local Ollama model
-            const response = await ollama.chat({
-                options: { temperature: 0.7, num_ctx: 32_768 },
-                messages: [{ role: "user", content: prompt }],
-                model: "llama3.2:3b",
-                stream: true,
-            });
-
-            const stream = adaptOllamaStream(response);
-            await aiStreamResponse(interaction, stream);
-        } catch (ollamaError) {
-            console.error("Ollama fallback also failed.", ollamaError);
-            await interaction.editReply("AI services are currently unavailable.");
-        }
+    } catch (gemini_error) {
+        const response = await ollama.chat({
+            options: { temperature: 0.7, num_ctx: 32768 },
+            messages: [{ role: "user", content: prompt }],
+            model: "llama3.2:3b",
+            stream: true,
+        });
+        const stream = adaptOllamaStream(response);
+        await aiStreamResponse(interaction, stream);
     }
 }
 
@@ -61,84 +51,39 @@ async function* adaptOllamaStream(stream: any) {
     }
 }
 
-// Updated interface for the state object to work with Interactions
-interface StreamState {
-    interaction: ChatInputCommandInteraction<CacheType>;
-    latest_follow_up: Message | null;
-    not_sent: string[];
-    buffer: string;
-    is_first_message: boolean;
-}
-
-async function aiStreamQueue(state: StreamState): Promise<boolean> {
-    const first = state.not_sent.shift();
-    if (first === undefined) return false;
-
-    if (state.buffer.length + first.length >= 2000) {
-        state.latest_follow_up = await state.interaction.followUp({
-            content: first,
-            flags: MessageFlags.Ephemeral,
-        });
-        state.buffer = first;
-        state.is_first_message = false;
-        return true;
-    }
-
-    state.buffer = state.buffer + "\n" + first;
-    while (state.not_sent.length > 0) {
-        if (state.buffer.length + state.not_sent[0]!.length >= 2000) break;
-        state.buffer = state.buffer + "\n" + state.not_sent.shift()!;
-    }
-
-    if (state.is_first_message) {
-        await state.interaction.editReply({ content: state.buffer });
-    } else if (state.latest_follow_up) {
-        await state.latest_follow_up.edit({ content: state.buffer });
-    }
-    return true;
-}
-
-async function aiStreamResponse(interaction: ChatInputCommandInteraction<CacheType>, stream: any) {
-    await interaction.editReply("Loading...");
-
-    const state: StreamState = {
-        interaction: interaction,
-        latest_follow_up: null,
-        not_sent: [] as string[],
-        buffer: "" as string,
-        is_first_message: true,
-    };
-
-    let not_parsed: string = "";
-    let timer = Date.now();
+// This generator yields message-sized chunks
+async function* streamToChunks(stream: any) {
+    let buffer: string = "";
 
     for await (const segment of stream) {
-        not_parsed += segment;
-
-        const line_split: string[] = not_parsed.split("\n");
-        not_parsed = line_split[line_split.length - 1]!;
-        for (let i = 0; i < line_split.length - 1; i += 1) {
-            while (line_split[i]!.trimStart().length > 0) {
-                state.not_sent.push(line_split[i]!.slice(0, 2000));
-                line_split[i]! = line_split[i]!.slice(2000);
-            }
-        }
-
-        while (Date.now() - timer > 1000) {
-            if (await aiStreamQueue(state)) {
-                timer = timer + 1000;
-            } else break;
+        buffer = buffer + segment;
+        while (buffer.length >= 2000) {
+            yield buffer.slice(0, 2000);
+            buffer = buffer.slice(2000);
         }
     }
 
-    if (not_parsed.trim().length !== 0) {
-        state.not_sent.push(not_parsed);
+    if (buffer.length > 0) {
+        yield buffer;
     }
+}
 
-    while (await aiStreamQueue(state)) {}
+// Reply to the interaction with ephemeral response messages
+async function aiStreamResponse(interaction: any, stream: any) {
+    const chunk_generator = streamToChunks(stream);
+
+    const first_chunk = await chunk_generator.next();
+    await interaction.editReply({ content: first_chunk.value });
+
+    for await (const chunk of chunk_generator) {
+        await interaction.followUp({
+            content: chunk,
+            flags: MessageFlags.Ephemeral,
+        });
+    }
 }
 
 export default {
-    data: aiCommandBuilder,
+    data: ai_command_builder,
     execute: execute,
 };
