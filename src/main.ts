@@ -1,29 +1,32 @@
 import {
+    REST,
+    Routes,
     Client,
     Message,
     Partials,
-    GatewayIntentBits,
+    Collection,
     type Channel,
+    GatewayIntentBits,
     type SendableChannels,
 } from "discord.js";
-import { GoogleGenerativeAI } from "@google/generative-ai";
-import ollama from "ollama";
 import * as fs from "fs";
+import ai_command from "./ai_command";
 
 const client = new Client({
     intents: Object.values(GatewayIntentBits) as GatewayIntentBits[],
     partials: Object.values(Partials) as Partials[],
 });
 
+const commands = new Collection<string, any>();
+commands.set(ai_command.data.name, ai_command);
+
 const memory = new WebAssembly.Memory({ initial: 64 });
 
-// Tool to help load WASM memory as TypeScript strings
 function readString(ptr: number, len: number): string {
     const bytes = new Uint8Array(memory.buffer, ptr, len);
     return new TextDecoder().decode(bytes);
 }
 
-// For setting string parameters in TypeScript
 function pushString(str: string): void {
     const utf_8 = new TextEncoder().encode(str);
     const ptr = allocateMem(utf_8.length);
@@ -42,7 +45,6 @@ type MessageApi = {
 
 const env = {
     memory: memory,
-
     readFileApi: (path_ptr: number, path_len: number): boolean => {
         try {
             const path = readString(path_ptr, path_len);
@@ -103,7 +105,15 @@ const messageCreate = exports["messageCreate"] as () => boolean;
 const init = exports["init"] as () => boolean;
 
 client.once("clientReady", async (client) => {
-    let info_message = `Logged in as ${client.user?.tag}`;
+    // Register slash commands on startup
+    const token: string = process.env["DISCORD_TOKEN"]!;
+    const client_id: string = process.env["CLIENT_ID"]!;
+    const rest = new REST().setToken(token);
+    await rest.put(Routes.applicationCommands(client_id), {
+        body: [ai_command.data.toJSON()],
+    });
+
+    let info_message = `Logged in as ${client.user.tag}`;
     for (const guild of client.guilds.cache.values()) {
         info_message += `\n - ${guild.name}: ${guild.memberCount} members`;
     }
@@ -129,164 +139,36 @@ client.on("messageCreate", async (message) => {
             } as MessageApi)
         );
         if (!messageCreate()) {
-            await debug("messageCreate failed");
+            await debug("WASM messageCreate failed");
         }
-        handleAiRequest(message);
     } catch (err) {
         await debug(String(err));
     }
 });
 
-const generative_ai = new GoogleGenerativeAI(process.env["GEMINI_API_KEY"]!);
-const gemini_model = generative_ai.getGenerativeModel({
-    model: "gemini-2.5-flash",
+client.on("interactionCreate", async (interaction) => {
+    if (!interaction.isChatInputCommand()) return;
+    const command = commands.get(interaction.commandName);
+    await command.execute(interaction);
 });
 
-async function handleAiRequest(message: Message) {
-    if (message.author.bot) return;
-    if (!message.content.startsWith(".ai ")) return;
-    const prompt = message.content.slice(4);
-
-    try {
-        const result = await gemini_model.generateContentStream(prompt);
-        const stream = adaptGeminiStream(result.stream);
-        await aiStreamResponse(message, stream);
-    } catch (err) {
-        await debug(String(err));
-
-        const response = await ollama.chat({
-            options: { temperature: 0.7, num_ctx: 32_768 },
-            messages: [{ role: "user", content: prompt }],
-            model: "llama3.2:3b",
-            keep_alive: -1,
-            stream: true,
-        });
-
-        const stream = adaptOllamaStream(response);
-        await aiStreamResponse(message, stream);
-    }
-}
-
-// Adapt response from streaming gemini chat for aiStreamResponse
-async function* adaptGeminiStream(stream: any) {
-    for await (const segment of stream) {
-        yield segment.text();
-    }
-}
-
-// Adapt response from streaming ollama.chat for aiStreamResponse
-async function* adaptOllamaStream(stream: any) {
-    for await (const segment of stream) {
-        yield segment.message.content;
-    }
-}
-
-async function aiStreamQueue(state: {
-    response: Message;
-    not_sent: string[];
-    buffer: string;
-}): Promise<boolean> {
-    const first = state.not_sent.shift();
-    if (first === undefined) return false;
-
-    if (buffer.length + first.length >= 4096) {
-        state.response = await safeSend(state.response.channel, first);
-        state.buffer = first;
-        return true;
-    }
-
-    state.buffer = state.buffer + "\n" + first;
-    while (state.not_sent.length > 0) {
-        if (buffer.length + state.not_sent[0]!.length >= 4096) break;
-        state.buffer = state.buffer + "\n" + state.not_sent.shift()!;
-    }
-
-    return await safeEdit(state.response, state.buffer);
-}
-
-async function aiStreamResponse(message: Message, stream: any) {
-    const state = {
-        response: await safeReply(message, "Loading..."),
-        not_sent: [] as string[],
-        buffer: "" as string,
-    };
-
-    let not_parsed: string = "";
-    let timer = Date.now();
-
-    for await (const segment of stream) {
-        not_parsed += segment;
-
-        const line_split: string[] = not_parsed.split("\n");
-        not_parsed = line_split[line_split.length - 1]!;
-        for (let i = 0; i < line_split.length - 1; i += 1) {
-            while (line_split[i]!.trimStart().length > 0) {
-                state.not_sent.push(line_split[i]!.slice(0, 4096));
-                line_split[i]! = line_split[i]!.slice(4096);
-            }
-        }
-
-        while (Date.now() - timer > 1000) {
-            if (await aiStreamQueue(state)) {
-                timer = timer + 1000;
-            } else break;
-        }
-    }
-
-    if (not_parsed.trim().length !== 0) {
-        state.not_sent.push(not_parsed);
-    }
-
-    while (await aiStreamQueue(state)) {}
-}
-
-// groups lines into the biggest message that can be formed below len
-function lineCollate(list: string[], len: number): string | undefined {
-    const first: string | undefined = list.shift();
-    if (first === undefined) return undefined;
-
-    if (first.length > len) {
-        list.unshift(first.slice(len));
-        return first.slice(0, len);
-    }
-
-    let sum: string = first;
-    while (true) {
-        if (list.length === 0) return sum;
-        if (sum.length + list[0]!.length >= len) return sum;
-        sum = sum + "\n" + list.shift()!;
-    }
-}
-
-// Disable unwanted pings when sending a message
 async function safeSend(channel: Channel, content: string) {
     const embeds = [{ description: content }];
     const allowedMentions = { parse: [], repliedUser: true };
     return (channel as SendableChannels).send({ embeds, allowedMentions });
 }
 
-// Disable unwanted pings while replying to a message
 async function safeReply(message: Message, content: string) {
     const embeds = [{ description: content }];
     const allowedMentions = { parse: [], repliedUser: true };
     return message.reply({ embeds, allowedMentions });
 }
 
-// Memoize api calls for message edits and disable unwanted pings
-// Returns true if the api call was sent, otherwise returns false
-async function safeEdit(message: Message, content: string) {
-    if (message.content === content) return false;
-    const embeds = [{ description: content }];
-    const allowedMentions = { parse: [], repliedUser: true };
-    await message.edit({ embeds, allowedMentions });
-    return true;
-}
-
 async function debug(content: string) {
     console.log("DEBUG: " + content);
-    const bot_testing = "896098449672527963";
+    const debug_channel = process.env["DEBUG_CHANNEL_ID"]!;
     const dbg_content = "```\nDEBUG: " + content + "\n```";
-    const channel = await client.channels.fetch(bot_testing);
+    const channel = await client.channels.fetch(debug_channel);
     if (channel !== null) await safeSend(channel, dbg_content);
 }
 
