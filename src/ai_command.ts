@@ -1,5 +1,5 @@
+import { MessageFlags, SlashCommandBuilder } from "discord.js";
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { SlashCommandBuilder } from "discord.js";
 import ollama from "ollama";
 
 const model_option = "gemini-2.5-flash";
@@ -18,7 +18,7 @@ const ai_command_builder = new SlashCommandBuilder()
 
 // Handle generating, adapting, and sending async LLM text streams
 async function execute(interaction: any) {
-    await interaction.deferReply();
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const prompt = interaction.options.getString("prompt", true);
 
     try {
@@ -37,14 +37,14 @@ async function execute(interaction: any) {
     }
 }
 
-// Adapt response from streaming gemini chat for aiStreamResponse
+// Adapt response from streaming gemini chat
 async function* adaptGeminiStream(stream: any) {
     for await (const segment of stream) {
         yield segment.text();
     }
 }
 
-// Adapt response from streaming ollama.chat for aiStreamResponse
+// Adapt response from streaming ollama.chat
 async function* adaptOllamaStream(stream: any) {
     for await (const segment of stream) {
         yield segment.message.content;
@@ -76,7 +76,10 @@ async function aiStreamResponse(interaction: any, stream: any) {
     await interaction.editReply({ content: first_chunk.value });
 
     for await (const chunk of chunk_generator) {
-        await interaction.followUp({ content: chunk });
+        await interaction.followUp({
+            content: chunk,
+            flags: MessageFlags.Ephemeral,
+        });
     }
 }
 
