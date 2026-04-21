@@ -77,7 +77,7 @@ const env = {
         message_id_ptr: number,
         message_id_len: number,
         content_ptr: number,
-        content_len: number
+        content_len: number,
     ): void => {
         try {
             const channel_id = readString(channel_id_ptr, channel_id_len);
@@ -136,7 +136,7 @@ client.on("messageCreate", async (message) => {
                 author_id: message.author.id,
                 content: message.content,
                 is_bot: message.author.bot,
-            } as MessageApi)
+            } as MessageApi),
         );
         if (!messageCreate()) {
             await debug("WASM messageCreate failed");

@@ -1,21 +1,20 @@
 const std = @import("std");
 
-pub fn build(b: *std.Build) void {
-    errdefer @panic("Error");
-
+pub fn build(b: *std.Build) !void {
     const wasm = b.addExecutable(.{
         .name = "retrobot",
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/root.zig"),
+            .optimize = .ReleaseFast,
             .target = b.resolveTargetQuery(.{
                 .cpu_arch = .wasm32,
                 .cpu_model = .baseline,
                 .os_tag = .freestanding,
             }),
-            .optimize = .ReleaseFast,
         }),
     });
 
+    // Install the wasm binary
     wasm.stack_size = 1 << 16;
     wasm.import_memory = true;
     wasm.initial_memory = 64 << 16;
@@ -24,52 +23,36 @@ pub fn build(b: *std.Build) void {
     wasm.rdynamic = true;
     wasm.entry = .disabled;
 
-    // Build and install WASM artifact
-    const install_wasm = b.addInstallArtifact(wasm, .{});
+    const install = b.addInstallArtifact(wasm, .{});
 
-    // Add or update discord.js & ollama & gemini
-    const discord_add = b.addSystemCommand(
-        &.{ "bun", "add", "discord.js" },
-    );
-    const ollama_add = b.addSystemCommand(
-        &.{ "bun", "add", "ollama" },
-    );
-    const gemini_add = b.addSystemCommand(
-        &.{ "bun", "add", "@google/generative-ai" },
-    );
-
-    // Build typescript source
+    // Build typescript source (including adding required libraries)
     const ts_source = try b.build_root.join(b.allocator, &.{"src/main.ts"});
     const bun_build = b.addSystemCommand(&.{
-        "bun",      "build",   ts_source,
-        "--outdir", b.exe_dir, "--target",
-        "bun", "--sourcemap", // "--minify",
+        "bun",
+        "build",
+        ts_source,
+        "--sourcemap",
+        "--minify-syntax",
+        "--minify-whitespace",
+        "--target" ++ "=" ++ "bun",
+        b.fmt("--outdir={s}", .{b.exe_dir}),
     });
-    bun_build.step.dependOn(&discord_add.step);
-    bun_build.step.dependOn(&ollama_add.step);
-    bun_build.step.dependOn(&gemini_add.step);
-    b.default_step.dependOn(&bun_build.step);
 
-    // Copy .env to output directory
-    const dotenv_path = try b.build_root.join(b.allocator, &.{".env"});
-    const dotenv_copy = b.addSystemCommand(&.{ "cp", dotenv_path, b.exe_dir });
-    dotenv_copy.step.dependOn(&install_wasm.step);
-    b.default_step.dependOn(&dotenv_copy.step);
+    // The bun build step depends on some external JS
+    b.getInstallStep().dependOn(&bun_build.step);
+    for (@as([]const []const u8, &.{
+        "@google/generative-ai",
+        "discord.js",
+        "ollama",
+    })) |dependency| {
+        bun_build.step.dependOn(&b.addSystemCommand(
+            &.{ "bun", "add", dependency, "--silent" },
+        ).step);
+    }
 
-    // Copy "words.txt" to output directory
-    const words_path = try b.build_root.join(b.allocator, &.{"words.txt"});
-    const words_copy = b.addSystemCommand(&.{ "cp", words_path, b.exe_dir });
-    words_copy.step.dependOn(&install_wasm.step);
-    b.default_step.dependOn(&words_copy.step);
-
-    // Optimize WASM binary using wasm-opt
-    const wasm_path = try std.fmt.allocPrint(
-        b.allocator,
-        "{s}/retrobot.wasm",
-        .{b.exe_dir},
-    );
-    defer b.allocator.free(wasm_path);
-    const wasm_opt = b.addSystemCommand(&.{
+    // The optimization of the wasm file depends on the program wasm-opt
+    const wasm_path = b.pathJoin(&.{ b.install_path, "retrobot.wasm" });
+    install.step.dependOn(&b.addSystemCommand(&.{
         "wasm-opt",
         "-O4",
         "--enable-bulk-memory-opt",
@@ -77,7 +60,25 @@ pub fn build(b: *std.Build) void {
         wasm_path,
         "-o",
         wasm_path,
-    });
-    wasm_opt.step.dependOn(&install_wasm.step);
-    b.default_step.dependOn(&wasm_opt.step);
+    }).step);
+
+    // Copy .env and "words.txt" to output directory on install step
+    for (@as([]const []const u8, &.{ ".env", "words.txt" })) |dependency| {
+        const path = try b.build_root.join(b.allocator, &.{dependency});
+        const copy_step = b.addSystemCommand(&.{ "cp", path, b.exe_dir });
+        install.step.dependOn(&copy_step.step);
+    }
+
+    // The clean subcommand command will delete a bunch of stuff
+    const clean = b.step("clean", "remove unnecessary files");
+    for (@as([]const []const u8, &.{
+        "package.json",
+        "node_modules",
+        ".zig-cache",
+        "bun.lock",
+        "zig-out",
+    })) |to_go| {
+        const path = try b.build_root.join(b.allocator, &.{to_go});
+        clean.dependOn(&b.addSystemCommand(&.{ "rm", "-rf", path }).step);
+    }
 }
