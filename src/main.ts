@@ -1,24 +1,16 @@
 import {
-    REST,
-    Routes,
     Client,
     Message,
     Partials,
-    Collection,
-    type Channel,
     GatewayIntentBits,
     type SendableChannels,
 } from "discord.js";
 import * as fs from "fs";
-import ai_command from "./ai_command";
 
-const client = new Client({
+const client = new Client({ // Gimme everything ya got (permissions)
     intents: Object.values(GatewayIntentBits) as GatewayIntentBits[],
     partials: Object.values(Partials) as Partials[],
 });
-
-const commands = new Collection<string, any>();
-commands.set(ai_command.data.name, ai_command);
 
 const memory = new WebAssembly.Memory({ initial: 64 });
 
@@ -105,19 +97,10 @@ const messageCreate = exports["messageCreate"] as () => boolean;
 const init = exports["init"] as () => boolean;
 
 client.once("clientReady", async (client) => {
-    // Register slash commands on startup
-    const token: string = process.env["DISCORD_TOKEN"]!;
-    const client_id: string = process.env["CLIENT_ID"]!;
-    const rest = new REST().setToken(token);
-    await rest.put(Routes.applicationCommands(client_id), {
-        body: [ai_command.data.toJSON()],
-    });
-
     let info_message = `Logged in as ${client.user.tag}`;
     for (const guild of client.guilds.cache.values()) {
         info_message += `\n - ${guild.name}: ${guild.memberCount} members`;
     }
-
     await debug(info_message);
 });
 
@@ -146,22 +129,14 @@ client.on("messageCreate", async (message) => {
     }
 });
 
-client.on("interactionCreate", async (interaction) => {
-    if (!interaction.isChatInputCommand()) return;
-    const command = commands.get(interaction.commandName);
-    await command.execute(interaction);
-});
-
-async function safeSend(channel: Channel, content: string) {
-    const embeds = [{ description: content }];
+async function safeSend(channel: SendableChannels, content: string) {
     const allowedMentions = { parse: [], repliedUser: true };
-    return (channel as SendableChannels).send({ embeds, allowedMentions });
+    return channel.send({ content, allowedMentions });
 }
 
 async function safeReply(message: Message, content: string) {
-    const embeds = [{ description: content }];
     const allowedMentions = { parse: [], repliedUser: true };
-    return message.reply({ embeds, allowedMentions });
+    return message.reply({ content, allowedMentions });
 }
 
 async function debug(content: string) {
@@ -169,7 +144,9 @@ async function debug(content: string) {
     const debug_channel = process.env["DEBUG_CHANNEL_ID"]!;
     const dbg_content = "```\nDEBUG: " + content + "\n```";
     const channel = await client.channels.fetch(debug_channel);
-    if (channel !== null) await safeSend(channel, dbg_content);
+    if (channel !== null) await safeSend(
+        channel as SendableChannels, dbg_content
+    );
 }
 
 if (!init()) throw new Error("Failed to initialize WASM");
