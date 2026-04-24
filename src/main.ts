@@ -51,6 +51,15 @@ USAGE:
 \`\`\``;
 
 client.on("messageCreate", async (message) => {
+    // Log the message into the terminal
+    const date = new Date().toISOString();
+    const log_safe = message.content.replace(/\s+/g, " ");
+    const global_name = message.author.globalName ?? "NULL";
+    const log_msg = `${date} | ${global_name} -> ${log_safe}`;
+    const trim_len = Math.min(log_msg.length, 120);
+    console.log(log_msg.slice(0, trim_len));
+
+    // React to general things
     switch (message.content.toLowerCase()) {
         case "no u":
             return await message.reply("-# no u");
@@ -69,6 +78,7 @@ client.on("messageCreate", async (message) => {
     }
 
     try {
+        // React to purposeful commands
         await commandAcr(message);
         await commandCalc(message);
         await commandDice(message);
@@ -78,6 +88,7 @@ client.on("messageCreate", async (message) => {
         await commandMsg(message);
         await commandXkcd(message);
     } catch (err) {
+        // Report any unhandled errors
         const safe = `${err}`.replace(/\s+/g, " ");
         await message.reply("-# " + safe);
     }
@@ -196,6 +207,9 @@ async function commandMsg(message: Message) {
         // Send on the same line if they had no tab or newline
         await user.send(header + " " + content);
     }
+
+    // Let the user know their request has been completed
+    await message.react("👍");
 }
 
 async function commandXkcd(message: Message) {
@@ -229,8 +243,18 @@ async function selectUser(
     const search_2 = client.users.cache.find(find_2) as User;
     if (search_2 !== undefined) return search_2;
 
-    // PRIORITY 3: interpret the user as a snowflake
-    return await client.users.fetch(user);
+    try {
+        // PRIORITY 3: interpret the user as a snowflake
+        return await client.users.fetch(user);
+    } catch {}
+
+    try {
+        // PRIORITY 4: parse a user ping to get a snowflake
+        const match = (user.match(/^<@(\d+)>$/) ?? [])[1];
+        return await client.users.fetch(match as string);
+    } catch {}
+
+    return undefined;
 }
 
 async function safeSend(channel: Channel, content: string) {
@@ -238,11 +262,6 @@ async function safeSend(channel: Channel, content: string) {
     const allowedMentions = { parse: [], repliedUser: true };
     return await sendable.send({ content, allowedMentions });
 }
-
-// async function safeReply(message: Message, content: string) {
-//     const allowedMentions = { parse: [], repliedUser: true };
-//     return await message.reply({ content, allowedMentions });
-// }
 
 async function safeEdit(message: Message, content: string) {
     const allowedMentions = { parse: [], repliedUser: true };
@@ -260,89 +279,3 @@ async function debug(content: string) {
 // ---------------------------------------------------- RETROBOT INITIALIZATION
 
 client.login(process.env["DISCORD_TOKEN"]);
-
-// const memory = new WebAssembly.Memory({ initial: 64 });
-
-// function readString(ptr: number, len: number): string {
-//     const bytes = new Uint8Array(memory.buffer, ptr, len);
-//     return new TextDecoder().decode(bytes);
-// }
-
-// function pushString(str: string): void {
-//     const utf_8 = new TextEncoder().encode(str);
-//     const ptr = allocateMem(utf_8.length);
-//     if (ptr === 0) throw new Error("Out of memory");
-//     const str_mem = new Uint8Array(memory.buffer, ptr, utf_8.length);
-//     str_mem.set(utf_8);
-// }
-
-// type MessageApi = {
-//     channel_id: string;
-//     message_id: string;
-//     author_id: string;
-//     content: string;
-//     is_bot: boolean;
-// };
-
-// const env = {
-//     memory: memory,
-//     readFileApi: (path_ptr: number, path_len: number): boolean => {
-//         try {
-//             const path = readString(path_ptr, path_len);
-//             pushString(fs.readFileSync(path, "utf8"));
-//             return true;
-//         } catch (err) {
-//             debug(String(err));
-//             return false;
-//         }
-//     },
-//     writeStdoutApi: (out_ptr: number, out_len: number): void => {
-//         try {
-//             const output = readString(out_ptr, out_len);
-//             process.stdout.write(output);
-//         } catch (err) {
-//             debug(String(err));
-//         }
-//     },
-//     fillRandomApi: (dest_ptr: number, dest_len: number): void => {
-//         try {
-//             const bytes = new Uint8Array(memory.buffer, dest_ptr, dest_len);
-//             crypto.getRandomValues(bytes);
-//         } catch (err) {
-//             debug(String(err));
-//         }
-//     },
-//     replyMessageApi: (
-//         channel_id_ptr: number,
-//         channel_id_len: number,
-//         message_id_ptr: number,
-//         message_id_len: number,
-//         content_ptr: number,
-//         content_len: number,
-//     ): void => {
-//         try {
-//             const channel_id = readString(channel_id_ptr, channel_id_len);
-//             const message_id = readString(message_id_ptr, message_id_len);
-//             const content = readString(content_ptr, content_len);
-//             (async () => {
-//                 const channel = await client.channels.fetch(channel_id);
-//                 if (!channel || !("messages" in channel)) return;
-//                 const message = await channel.messages.fetch(message_id);
-//                 await safeReply(message, content);
-//             })();
-//         } catch (err) {
-//             debug(String(err));
-//         }
-//     },
-// };
-
-// const buffer = fs.readFileSync("retrobot.wasm");
-// const module = new WebAssembly.Module(buffer);
-// const instance = new WebAssembly.Instance(module, { env });
-// const exports = instance.exports;
-
-// const allocateMem = exports["allocateMem"] as (len: number) => number;
-// const messageCreate = exports["messageCreate"] as () => boolean;
-// const init = exports["init"] as () => boolean;
-
-// if (!init()) throw new Error("Failed to initialize WASM");
