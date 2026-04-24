@@ -43,7 +43,11 @@ pub fn build(b: *std.Build) !void {
     // The bun build step depends on some external JS
     const dep_update = b.step("update", "update JS dependencies with bun");
     dep_update.dependOn(&install.step);
-    for (@as([]const []const u8, &.{ "discord.js", "ollama" })) |dependency| {
+    for (@as([]const []const u8, &.{
+        "discord.js",
+        "fast-xml-parser",
+        "ollama",
+    })) |dependency| {
         dep_update.dependOn(&b.addSystemCommand(
             &.{ "bun", "add", dependency, "--silent" },
         ).step);
@@ -61,11 +65,12 @@ pub fn build(b: *std.Build) !void {
     b.getInstallStep().dependOn(&optimize_wasm.step);
 
     // Copy .env and "words.txt" to output directory on install step
-    for (@as([]const []const u8, &.{ ".env", "words.txt" })) |dependency| {
+    const deps = b.step("deps", "copy .env and words.json to output dir");
+    for (@as([]const []const u8, &.{ ".env", "words.json" })) |dependency| {
         const path = try b.build_root.join(b.allocator, &.{dependency});
         const copy_command = b.addSystemCommand(&.{ "cp", path, b.exe_dir });
-        b.getInstallStep().dependOn(&copy_command.step);
         copy_command.step.dependOn(&install.step);
+        deps.dependOn(&copy_command.step);
     }
 
     // The clean subcommand command will delete a bunch of stuff
