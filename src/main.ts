@@ -40,42 +40,52 @@ client.on("guildMemberAdd", async (member) => {
 
 const help_text = `\`\`\`
 USAGE:
-- .acr  [WORD]        -> generate an acronym
-- .calc [EXPR]        -> evaluate some math
-- .dice [SIDES]       -> roll a die
-- .flip               -> flip a coin
-- .help               -> display this message
-- .look [IMAGE]       -> describe an image
-- .msg  [USER] [TEXT] -> message a user
-- .xkcd               -> get the latest xkcd
+- .acr [WORD]        -> generate an acronym
+- .calc [EXPR]       -> evaluate some math
+- .dice [SIDES]      -> roll a die
+- .flip              -> flip a coin
+- .help              -> display this message
+- .look [IMAGE]      -> describe an image
+- .love [USER]       -> love a user
+- .msg [USER] [TEXT] -> message a user
+- .note [TEXT]       -> message yourself
+- .say [TEXT]        -> say something
+- .smite [USER]      -> mute someone for 30 seconds
+- .xkcd              -> get the latest xkcd
 \`\`\``;
 
 client.on("messageCreate", async (message) => {
-    // Log the message into the terminal
-    const date = new Date().toISOString();
-    const log_safe = message.content.replace(/\s+/g, " ");
-    const global_name = message.author.globalName ?? "NULL";
-    const log_msg = `${date} | ${global_name} -> ${log_safe}`;
-    const trim_len = Math.min(log_msg.length, 120);
-    console.log(log_msg.slice(0, trim_len));
-
     // React to general things
     switch (message.content.toLowerCase()) {
+        case "f":
+            return await message.reply("-# RIP!");
+        case "echo":
+            return await message.reply("-# echo");
         case "no u":
+        case "sigh":
+        case "my eyes":
             return await message.reply("-# no u");
         case "ping":
             return await message.reply("-# pong");
         case "pong":
             return await message.reply("-# ping");
+        case "nice":
+            return await message.reply(":ok_hand:");
+        case "rip":
+            return await message.reply("-# Rest in pieces.");
         case "brownie clicker":
-            return await message.reply("-# <https://alloc.dev/brownie/>");
+            const link_0 = "-# <https://alloc.dev/brownie/>";
+            return await message.reply(link_0);
         case "fortuna tools":
-            return await message.reply("-# <https://alloc.dev/fortuna/>");
+            const link_1 = "-# <https://alloc.dev/fortuna/>";
+            return await message.reply(link_1);
         case "binary counter":
-            return await message.reply(
-                "-# https://alloc.dev/2026/01/09/counter.mp4",
-            );
+            const link_2 = "-# https://alloc.dev/2026/01/09/counter.mp4";
+            return await message.reply(link_2);
     }
+
+    if (/[\bghast\b]/g.test(message.content))
+        return await message.reply("Excuse you! I think you meant ***GHAT***");
 
     try {
         // React to purposeful commands
@@ -85,7 +95,11 @@ client.on("messageCreate", async (message) => {
         await commandFlip(message);
         await commandHelp(message);
         await commandLook(message);
+        await commandLove(message);
         await commandMsg(message);
+        await commandNote(message);
+        await commandSay(message);
+        await commandSmite(message);
         await commandXkcd(message);
     } catch (err) {
         // Report any unhandled errors
@@ -165,6 +179,34 @@ async function commandLook(message: Message) {
     }
 }
 
+async function commandLove(message: Message) {
+    if (!message.content.startsWith(".love ")) return;
+    const user = await selectUser(message.content.slice(6), message.guild);
+    if (user === undefined) return await message.reply("-# unknown user");
+
+    // Load the json file mapping user to "cooldown time"
+    const db_file = Bun.file("love_db.json");
+    let cooldown_map: { [key: string]: number } = {};
+    if (await db_file.exists()) cooldown_map = await db_file.json();
+
+    // Ratelimit the user if they attempt to use .love too often
+    const last_time = cooldown_map[message.author.id];
+    if (last_time !== undefined) {
+        const rem = Math.ceil((last_time - Date.now()) / 1000 + 300);
+        const rate_msg = `-# slow down! ${rem} seconds remaining...`;
+        if (rem > 0) return await message.reply(rate_msg);
+    }
+
+    const unsendable = !message.channel.isSendable();
+    if (unsendable) return await message.reply("-# channel unsendable");
+    const content = `❤️😊❤️ <@${message.author.id}> loves <@${user.id}> ❤️😚❤️`;
+    await (message.channel as SendableChannels).send(content);
+
+    // Update their time for cooldown and save the file
+    cooldown_map[message.author.id] = Date.now();
+    await Bun.write(db_file, JSON.stringify(cooldown_map));
+}
+
 async function commandDice(message: Message) {
     if (!message.content.startsWith(".dice ")) return;
     const side_str = message.content.slice(6);
@@ -187,7 +229,6 @@ async function commandFlip(message: Message) {
 async function commandMsg(message: Message) {
     if (!message.content.startsWith(".msg ")) return;
     const command = message.content.slice(5).split(" ");
-    if (command.length < 2) return await message.reply("-# missing arguments");
 
     // Find the user
     const target: string = command[0] as string;
@@ -210,6 +251,61 @@ async function commandMsg(message: Message) {
 
     // Let the user know their request has been completed
     await message.react("👍");
+}
+
+async function commandNote(message: Message) {
+    if (!message.content.startsWith(".note ")) return;
+    const content = message.content.slice(6);
+
+    if (/[\t\n]/g.test(content)) {
+        // Send in a codeblock if they had a tab or newline
+        await message.author.send("`.note` -\n```" + content + "```");
+    } else {
+        // Send on the same line if they had no tab or newline
+        await message.author.send("`.note` - " + content);
+    }
+
+    // Let the user know their request has been completed
+    await message.react("👍");
+}
+
+async function commandSay(message: Message) {
+    if (!message.content.startsWith(".say ")) return;
+    const unsendable = !message.channel.isSendable();
+    if (unsendable) return await message.reply("-# channel unsendable");
+    await safeSend(message.channel, message.content.slice(5));
+}
+
+async function commandSmite(message: Message) {
+    if (!message.content.startsWith(".smite ")) return;
+    const user = await selectUser(message.content.slice(7), message.guild);
+    if (user === undefined) return await message.reply("-# unknown user");
+
+    // Load the json file mapping user to "cooldown time"
+    const db_file = Bun.file("smite_db.json");
+    let cooldown_map: { [key: string]: number } = {};
+    if (await db_file.exists()) cooldown_map = await db_file.json();
+
+    // Ratelimit the user if they attempt to use .smite too often
+    const last_time = cooldown_map[message.author.id];
+    if (last_time !== undefined) {
+        const rem = Math.ceil((last_time - Date.now()) / 1000 + 300);
+        const rate_msg = `-# slow down! ${rem} seconds remaining...`;
+        if (rem > 0) return await message.reply(rate_msg);
+    }
+
+    // Select the user to smite - must be within the same server
+    if (message.guild === null) return await message.reply("-# not in server");
+    const member = await message.guild.members.fetch(user.id).catch(() => null);
+    if (member === null) return await message.reply("-# not in server");
+
+    // Mute the user for 30 seconds
+    await member.timeout(30_000, "you have been smitten");
+    await message.reply("-# user successfully smitten");
+
+    // Update their time for cooldown and save the file
+    cooldown_map[message.author.id] = Date.now();
+    await Bun.write(db_file, JSON.stringify(cooldown_map));
 }
 
 async function commandXkcd(message: Message) {

@@ -44,9 +44,9 @@ pub fn build(b: *std.Build) !void {
     const dep_update = b.step("update", "update JS dependencies with bun");
     dep_update.dependOn(&install.step);
     for (@as([]const []const u8, &.{
-        "discord.js",
-        "fast-xml-parser",
-        "ollama",
+        "discord.js", // To interface with discord
+        "fast-xml-parser", // For pulling xkcd rss feed
+        "ollama", // For running LLM vision models
     })) |dependency| {
         dep_update.dependOn(&b.addSystemCommand(
             &.{ "bun", "add", dependency, "--silent" },
