@@ -57,20 +57,18 @@ USAGE:
 client.on("messageCreate", async (message) => {
     // React to general things
     switch (message.content.toLowerCase()) {
-        case "f":
-            return await message.reply("-# RIP!");
-        case "echo":
-            return await message.reply("-# echo");
         case "no u":
         case "sigh":
         case "my eyes":
             return await message.reply("-# no u");
+        case "f":
+            return await message.reply("-# RIP!");
+        case "echo":
+            return await message.reply("-# echo");
         case "ping":
             return await message.reply("-# pong");
         case "pong":
             return await message.reply("-# ping");
-        case "nice":
-            return await message.reply(":ok_hand:");
         case "rip":
             return await message.reply("-# Rest in pieces.");
         case "brownie clicker":
@@ -82,9 +80,11 @@ client.on("messageCreate", async (message) => {
         case "binary counter":
             const link_2 = "-# https://alloc.dev/2026/01/09/counter.mp4";
             return await message.reply(link_2);
+        case "nice":
+            return await message.react("👌");
     }
 
-    if (/[\bghast\b]/g.test(message.content))
+    if (/\bghast\b/gi.test(message.content))
         return await message.reply("Excuse you! I think you meant ***GHAT***");
 
     try {
