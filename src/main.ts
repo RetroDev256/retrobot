@@ -55,40 +55,16 @@ USAGE:
 \`\`\``;
 
 client.on("messageCreate", async (message) => {
-    // React to general things
-    switch (message.content.toLowerCase()) {
-        case "no u":
-        case "sigh":
-        case "my eyes":
-            return await message.reply("-# no u");
-        case "f":
-            return await message.reply("-# RIP!");
-        case "echo":
-            return await message.reply("-# echo");
-        case "ping":
-            return await message.reply("-# pong");
-        case "pong":
-            return await message.reply("-# ping");
-        case "rip":
-            return await message.reply("-# Rest in pieces.");
-        case "brownie clicker":
-            const link_0 = "-# <https://alloc.dev/brownie/>";
-            return await message.reply(link_0);
-        case "fortuna tools":
-            const link_1 = "-# <https://alloc.dev/fortuna/>";
-            return await message.reply(link_1);
-        case "binary counter":
-            const link_2 = "-# https://alloc.dev/2026/01/09/counter.mp4";
-            return await message.reply(link_2);
-        case "nice":
-            return await message.react("👌");
-    }
-
-    if (/\bghast\b/gi.test(message.content))
-        return await message.reply("Excuse you! I think you meant ***GHAT***");
+    // Do not react to this or other bots
+    if (message.author.bot) return;
 
     try {
-        // React to purposeful commands
+        // Handle certain messages
+        await reactMaps(message);
+        await replyMaps(message);
+        await replyGhat(message);
+
+        // Handle purposeful commands
         await commandAcr(message);
         await commandCalc(message);
         await commandDice(message);
@@ -107,6 +83,36 @@ client.on("messageCreate", async (message) => {
         await message.reply("-# " + safe);
     }
 });
+
+async function reactMaps(message: Message) {
+    const react_map: { [key: string]: string } = { nice: "👌" };
+    const react = react_map[message.content.toLowerCase()];
+    if (react !== undefined) return await message.react(react);
+}
+
+async function replyMaps(message: Message) {
+    const reply_map: { [key: string]: string } = {
+        f: "-# RIP!",
+        "no u": "-# no u",
+        sigh: "-# no u",
+        echo: "-# echo",
+        ping: "-# pong",
+        pong: "-# ping",
+        "my eyes": "-# no u",
+        rip: "-# Rest in pieces.",
+        "fortuna tools": "-# <https://alloc.dev/fortuna/>",
+        "brownie clicker": "-# <https://alloc.dev/brownie/>",
+        "binary counter": "-# https://alloc.dev/2026/01/09/counter.mp4",
+    };
+
+    const reply = reply_map[message.content.toLowerCase()];
+    if (reply !== undefined) return await message.reply(reply);
+}
+
+async function replyGhat(message: Message) {
+    if (/\bghast\b/gi.test(message.content))
+        return await message.reply("Excuse you! I think you meant ***GHAT***");
+}
 
 async function commandAcr(message: Message) {
     if (!message.content.startsWith(".acr ")) return;
