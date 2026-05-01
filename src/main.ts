@@ -39,19 +39,23 @@ client.on("guildMemberAdd", async (member) => {
 // ---------------------------------------------------- COMMAND IMPLEMENTATIONS
 
 const help_text = `\`\`\`
-USAGE:
-- .acr [WORD]        -> generate an acronym
-- .calc [EXPR]       -> evaluate some math
-- .dice [SIDES]      -> roll a die
-- .flip              -> flip a coin
-- .help              -> display this message
-- .look [IMAGE]      -> describe an image
-- .love [USER]       -> love a user
-- .msg [USER] [TEXT] -> message a user
-- .note [TEXT]       -> message yourself
-- .say [TEXT]        -> say something
-- .smite [USER]      -> mute someone for 30 seconds
-- .xkcd              -> get the latest xkcd
+- USAGE:
+  .help -> display this message
+- TOOLS:
+  .calc [EXPR] -> evaluate some math
+  .look [IMAGE] -> describe an image
+  .xkcd -> get the latest xkcd
+- RANDOM:
+  .acr [WORD] -> generate an acronym
+  .dice [SIDES] -> roll a die
+  .flip -> flip a coin
+- MESSAGING:
+  .msg [USER] [TEXT] -> message a user
+  .note [TEXT] -> message yourself
+  .say [TEXT] -> say something
+- FUNNY:
+  .love [USER] -> love a user
+  .smite [USER] -> mute for 30 seconds
 \`\`\``;
 
 client.on("messageCreate", async (message) => {
@@ -59,24 +63,10 @@ client.on("messageCreate", async (message) => {
     if (message.author.bot) return;
 
     try {
-        // Handle certain messages
         await reactMaps(message);
         await replyMaps(message);
         await replyGhat(message);
-
-        // Handle purposeful commands
-        await commandAcr(message);
-        await commandCalc(message);
-        await commandDice(message);
-        await commandFlip(message);
-        await commandHelp(message);
-        await commandLook(message);
-        await commandLove(message);
-        await commandMsg(message);
-        await commandNote(message);
-        await commandSay(message);
-        await commandSmite(message);
-        await commandXkcd(message);
+        await commands(message);
     } catch (err) {
         // Report any unhandled errors
         const safe = `${err}`.replace(/\s+/g, " ");
@@ -114,9 +104,36 @@ async function replyGhat(message: Message) {
         return await message.reply("Excuse you! I think you meant ***GHAT***");
 }
 
-async function commandAcr(message: Message) {
-    if (!message.content.startsWith(".acr ")) return;
+async function commands(message: Message) {
+    switch (message.content.split(" ")[0]) {
+        case ".acr":
+            return await commandAcr(message);
+        case ".calc":
+            return await commandCalc(message);
+        case ".dice":
+            return await commandDice(message);
+        case ".flip":
+            return await commandFlip(message);
+        case ".help":
+            return await commandHelp(message);
+        case ".look":
+            return await commandLook(message);
+        case ".love":
+            return await commandLove(message);
+        case ".msg":
+            return await commandMsg(message);
+        case ".note":
+            return await commandNote(message);
+        case ".say":
+            return await commandSay(message);
+        case ".smite":
+            return await commandSmite(message);
+        case ".xkcd":
+            return await commandXkcd(message);
+    }
+}
 
+async function commandAcr(message: Message) {
     // filter out the odd stuff
     const word = message.content
         .slice(5)
@@ -139,19 +156,15 @@ async function commandAcr(message: Message) {
 }
 
 async function commandCalc(message: Message) {
-    if (!message.content.startsWith(".calc ")) return;
     const expr = message.content.substring(6);
     await message.reply("-# = " + expr); // TODO
 }
 
 async function commandHelp(message: Message) {
-    if (message.content !== ".help") return;
     await message.reply(help_text);
 }
 
 async function commandLook(message: Message) {
-    if (message.content !== ".look") return;
-
     if (message.attachments.size === 0)
         return await message.reply("-# missing an attachment");
     if (message.attachments.size > 1)
@@ -185,18 +198,13 @@ async function commandLook(message: Message) {
     }
 }
 
+const love_cooldowns: { [key: string]: number } = {};
 async function commandLove(message: Message) {
-    if (!message.content.startsWith(".love ")) return;
     const user = await selectUser(message.content.slice(6), message.guild);
     if (user === undefined) return await message.reply("-# unknown user");
 
-    // Load the json file mapping user to "cooldown time"
-    const db_file = Bun.file("love_db.json");
-    let cooldown_map: { [key: string]: number } = {};
-    if (await db_file.exists()) cooldown_map = await db_file.json();
-
     // Ratelimit the user if they attempt to use .love too often
-    const last_time = cooldown_map[message.author.id];
+    const last_time = love_cooldowns[message.author.id];
     if (last_time !== undefined) {
         const rem = Math.ceil((last_time - Date.now()) / 1000 + 300);
         const rate_msg = `-# slow down! ${rem} seconds remaining...`;
@@ -207,14 +215,10 @@ async function commandLove(message: Message) {
     if (unsendable) return await message.reply("-# channel unsendable");
     const content = `❤️😊❤️ <@${message.author.id}> loves <@${user.id}> ❤️😚❤️`;
     await (message.channel as SendableChannels).send(content);
-
-    // Update their time for cooldown and save the file
-    cooldown_map[message.author.id] = Date.now();
-    await Bun.write(db_file, JSON.stringify(cooldown_map));
+    love_cooldowns[message.author.id] = Date.now();
 }
 
 async function commandDice(message: Message) {
-    if (!message.content.startsWith(".dice ")) return;
     const side_str = message.content.slice(6);
     if (side_str === "") return await message.reply("-# missing side count");
     const sides = parseInt(side_str);
@@ -223,8 +227,6 @@ async function commandDice(message: Message) {
 }
 
 async function commandFlip(message: Message) {
-    if (message.content !== ".flip") return;
-
     if (randomInt(2) == 0) {
         await message.reply(`-# heads`);
     } else {
@@ -233,67 +235,34 @@ async function commandFlip(message: Message) {
 }
 
 async function commandMsg(message: Message) {
-    if (!message.content.startsWith(".msg ")) return;
     const command = message.content.slice(5).split(" ");
-
-    // Find the user
-    const target: string = command[0] as string;
-    const user = await selectUser(target, message.guild);
-    if (user === undefined) return await message.reply("-# unknown user");
-
-    // Format the resulting message
-    const user_id = message.author.id;
-    const global = message.author.globalName;
     const content = command.slice(1).join(" ");
-    const header = `\`.msg ${user_id}\` **${global}** :`;
 
-    if (/[\t\n]/g.test(content)) {
-        // Send in a codeblock if they had a tab or newline
-        await user.send(header + "\n```" + content + "```");
-    } else {
-        // Send on the same line if they had no tab or newline
-        await user.send(header + " " + content);
-    }
-
-    // Let the user know their request has been completed
+    // Find & direct message the user
+    const user = await selectUser(command[0] as string, message.guild);
+    if (user === undefined) return await message.reply("-# unknown user");
+    await user.send(`-# .msg ${message.author}\n${content}`);
     await message.react("👍");
 }
 
 async function commandNote(message: Message) {
-    if (!message.content.startsWith(".note ")) return;
-    const content = message.content.slice(6);
-
-    if (/[\t\n]/g.test(content)) {
-        // Send in a codeblock if they had a tab or newline
-        await message.author.send("`.note` -\n```" + content + "```");
-    } else {
-        // Send on the same line if they had no tab or newline
-        await message.author.send("`.note` - " + content);
-    }
-
-    // Let the user know their request has been completed
+    await message.author.send(`-# .note\n${message.content.slice(6)}`);
     await message.react("👍");
 }
 
 async function commandSay(message: Message) {
-    if (!message.content.startsWith(".say ")) return;
     const unsendable = !message.channel.isSendable();
     if (unsendable) return await message.reply("-# channel unsendable");
     await safeSend(message.channel, message.content.slice(5));
 }
 
+const smite_cooldowns: { [key: string]: number } = {};
 async function commandSmite(message: Message) {
-    if (!message.content.startsWith(".smite ")) return;
     const user = await selectUser(message.content.slice(7), message.guild);
     if (user === undefined) return await message.reply("-# unknown user");
 
-    // Load the json file mapping user to "cooldown time"
-    const db_file = Bun.file("smite_db.json");
-    let cooldown_map: { [key: string]: number } = {};
-    if (await db_file.exists()) cooldown_map = await db_file.json();
-
     // Ratelimit the user if they attempt to use .smite too often
-    const last_time = cooldown_map[message.author.id];
+    const last_time = smite_cooldowns[message.author.id];
     if (last_time !== undefined) {
         const rem = Math.ceil((last_time - Date.now()) / 1000 + 300);
         const rate_msg = `-# slow down! ${rem} seconds remaining...`;
@@ -306,22 +275,22 @@ async function commandSmite(message: Message) {
     if (member === null) return await message.reply("-# not in server");
 
     // Mute the user for 30 seconds
-    await member.timeout(30_000, "you have been smitten");
-    await message.reply("-# user successfully smitten");
+    try {
+        await member.timeout(30_000, "you have been smitten");
+    } catch {
+        return await safeReply(message, `-# unable to smite ${user}`);
+    }
 
-    // Update their time for cooldown and save the file
-    cooldown_map[message.author.id] = Date.now();
-    await Bun.write(db_file, JSON.stringify(cooldown_map));
+    await message.reply("-# user successfully smitten");
+    smite_cooldowns[message.author.id] = Date.now();
 }
 
 async function commandXkcd(message: Message) {
-    if (message.content !== ".xkcd") return;
-
     const rss_link = "https://xkcd.com/rss.xml";
     const text = await (await fetch(rss_link)).text();
     const data = new XMLParser().parse(text);
     const link = data?.rss?.channel?.item?.[0]?.link;
-    await message.reply(("-# " + link) as string);
+    await message.reply(`-# ${link}`);
 }
 
 // --------------------------------------------------- COMMAND HELPER FUNCTIONS
@@ -368,6 +337,11 @@ async function safeSend(channel: Channel, content: string) {
 async function safeEdit(message: Message, content: string) {
     const allowedMentions = { parse: [], repliedUser: true };
     return await message.edit({ content, allowedMentions });
+}
+
+async function safeReply(message: Message, content: string) {
+    const allowedMentions = { parse: [], repliedUser: true };
+    return await message.reply({ content, allowedMentions });
 }
 
 async function debug(content: string) {
