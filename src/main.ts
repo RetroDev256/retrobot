@@ -339,11 +339,25 @@ class ChunkedReplyWriter {
             this.dirty = false;
 
             if (this.buffer.length > 1994) {
-                // The split will prioritize whitespace and whatnot
+                // PRIORITY 0: paragraph breaks
                 let split = this.buffer.lastIndexOf("\n\n", 1994);
-                if (split < 1000) split = this.buffer.lastIndexOf("\n", 1994);
-                if (split < 1500) split = this.buffer.lastIndexOf("\t", 1994);
-                if (split < 1750) split = 1994;
+
+                if (split < 1000) {
+                    // PRIORITY 1: new lines
+                    split = this.buffer.lastIndexOf("\n", 1994);
+                    if (split < 1500) {
+                        // PRIORITY 2: tabs
+                        split = this.buffer.lastIndexOf("\t", 1994);
+                        if (split < 1750) {
+                            // PRIORITY 3: spaces
+                            split = this.buffer.lastIndexOf(" ", 1994);
+                            if (split < 1950) {
+                                // PRIORITY 4: cutting
+                                split = 1994;
+                            }
+                        }
+                    }
+                }
 
                 // Determine the contents of the two messages
                 const fmt_a = "```" + this.buffer.slice(0, split) + "```";
