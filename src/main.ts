@@ -383,7 +383,7 @@ class ChunkedReplyWriter {
 
                 // Determine the contents of the two messages
                 const fmt_a = "```" + this.buffer.slice(0, split) + "```";
-                this.buffer = this.buffer.slice(split).trimStart();
+                this.buffer = this.buffer.slice(split);
                 const fmt_b = "```" + this.buffer + "```";
 
                 // Update the old reply and send a new reply
