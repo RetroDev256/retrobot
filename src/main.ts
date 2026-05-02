@@ -364,7 +364,7 @@ class ChunkedReplyWriter {
                 await safeEdit(this.reply, fmt_a);
 
                 // Update the buffer for the remaining text
-                this.buffer = escaped.slice(split);
+                this.buffer = escaped.slice(split).trimStart();
 
                 // Set a new reply message to the old reply message
                 const fmt_b = "```" + this.buffer + "```";
