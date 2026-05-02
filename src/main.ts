@@ -51,6 +51,7 @@ const help_text = `
 -# \`.love [USER]\` love a user
 -# \`.msg [USER] [TEXT]\` message a user
 -# \`.note [TEXT]\` message yourself
+-# \`.reset\` reset slop session
 -# \`.say [TEXT]\` say something
 -# \`.slop [TEXT]\` run a small LLM
 -# \`.smite [USER]\` mute for 30 seconds
@@ -123,6 +124,8 @@ async function commands(message: Message) {
             return await commandMsg(message);
         case ".note":
             return await commandNote(message);
+        case ".reset":
+            return await commandReset(message);
         case ".say":
             return await commandSay(message);
         case ".slop":
@@ -257,6 +260,12 @@ async function commandNote(message: Message) {
     await message.react("👍");
 }
 
+async function commandReset(message: Message) {
+    slop_in_flight.delete(message.channel.id);
+    slop_message_hist[message.channel.id] = [];
+    await message.reply("-# slop session reset");
+}
+
 async function commandSay(message: Message) {
     const unsendable = !message.channel.isSendable();
     if (unsendable) return await message.reply("-# channel unsendable");
@@ -272,7 +281,7 @@ async function commandSlop(message: Message) {
 
     // Prevent users from using the AI while it is answering
     if (slop_in_flight.has(message.channel.id))
-        return await message.reply("-# wait for the slop!");
+        return await message.reply("-# wait for the slop");
 
     try {
         // Mark the slop as being generated.
