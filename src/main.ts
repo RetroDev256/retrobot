@@ -348,7 +348,7 @@ class ChunkedReplyWriter {
         // Ensure that the buffer gets the updated text appended
         this.buffer += chunk;
         // Ensure we don't get issues with formatting code
-        this.buffer.replace(/```/g, "\`\`\`");
+        this.buffer.replace(/```/g, "\\`\\`\\`");
         // A change has been made to the buffer, we are dirty
         this.dirty = true;
         // Don't update concurrently - we would be ratelimited
