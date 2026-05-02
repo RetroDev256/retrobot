@@ -178,7 +178,7 @@ async function commandLook(message: Message) {
     // Ratelimit the user if they attempt to use .look too often
     const last_time = look_cooldowns[message.author.id];
     if (last_time !== undefined) {
-        const rem = Math.ceil((last_time - Date.now()) / 1000 + 300);
+        const rem = Math.ceil((last_time - Date.now()) / 1000 + 60);
         const rate_msg = `-# slow down! ${rem} seconds remaining...`;
         if (rem > 0) return await message.reply(rate_msg);
     }
@@ -212,7 +212,7 @@ async function commandLove(message: Message) {
     // Ratelimit the user if they attempt to use .love too often
     const last_time = love_cooldowns[message.author.id];
     if (last_time !== undefined) {
-        const rem = Math.ceil((last_time - Date.now()) / 1000 + 300);
+        const rem = Math.ceil((last_time - Date.now()) / 1000 + 60);
         const rate_msg = `-# slow down! ${rem} seconds remaining...`;
         if (rem > 0) return await message.reply(rate_msg);
     }
@@ -271,7 +271,7 @@ async function commandSlop(message: Message) {
     // Ratelimit the user if they attempt to use .slop too often
     const last_time = slop_cooldowns[message.author.id];
     if (last_time !== undefined) {
-        const rem = Math.ceil((last_time - Date.now()) / 1000 + 300);
+        const rem = Math.ceil((last_time - Date.now()) / 1000 + 60);
         const rate_msg = `-# slow down! ${rem} seconds remaining...`;
         if (rem > 0) return await message.reply(rate_msg);
     }
@@ -303,7 +303,7 @@ async function commandSmite(message: Message) {
     // Ratelimit the user if they attempt to use .smite too often
     const last_time = smite_cooldowns[message.author.id];
     if (last_time !== undefined) {
-        const rem = Math.ceil((last_time - Date.now()) / 1000 + 300);
+        const rem = Math.ceil((last_time - Date.now()) / 1000 + 60);
         const rate_msg = `-# slow down! ${rem} seconds remaining...`;
         if (rem > 0) return await message.reply(rate_msg);
     }
