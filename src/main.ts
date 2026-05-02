@@ -164,6 +164,7 @@ async function commandHelp(message: Message) {
     await message.reply(help_text);
 }
 
+const look_cooldowns: { [key: string]: number } = {};
 async function commandLook(message: Message) {
     if (message.attachments.size === 0)
         return await message.reply("-# missing an attachment");
@@ -174,10 +175,19 @@ async function commandLook(message: Message) {
     if (!file_0?.contentType?.startsWith("image/"))
         return await message.reply("-# not an image");
 
+    // Ratelimit the user if they attempt to use .look too often
+    const last_time = look_cooldowns[message.author.id];
+    if (last_time !== undefined) {
+        const rem = Math.ceil((last_time - Date.now()) / 1000 + 300);
+        const rate_msg = `-# slow down! ${rem} seconds remaining...`;
+        if (rem > 0) return await message.reply(rate_msg);
+    }
+
     // Fetch and convert to base 64 for passing to ollama
     const img = await (await fetch(file_0.url)).bytes();
     const loading_msg = await message.reply("-# processing...");
     const writer = new ChunkedReplyWriter(loading_msg);
+    look_cooldowns[message.author.id] = Date.now();
 
     // Run the model and ask it to describe the image
     const prompt = "Describe this image in one short paragraph.";
@@ -252,12 +262,24 @@ async function commandSay(message: Message) {
     await safeSend(message.channel, message.content.slice(5));
 }
 
+const slop_cooldowns: { [key: string]: number } = {};
 async function commandSlop(message: Message) {
     const prompt = message.content.slice(6);
     if (prompt.length === 0)
         return await message.reply("-# missing slop prompt");
+
+    // Ratelimit the user if they attempt to use .slop too often
+    const last_time = slop_cooldowns[message.author.id];
+    if (last_time !== undefined) {
+        const rem = Math.ceil((last_time - Date.now()) / 1000 + 300);
+        const rate_msg = `-# slow down! ${rem} seconds remaining...`;
+        if (rem > 0) return await message.reply(rate_msg);
+    }
+
+    // Create the original response message to pump tokens
     const loading_msg = await message.reply("-# processing...");
     const writer = new ChunkedReplyWriter(loading_msg);
+    slop_cooldowns[message.author.id] = Date.now();
 
     // Run the model on the requested prompt
     const response = await ollama.chat({
