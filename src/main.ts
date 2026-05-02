@@ -325,6 +325,8 @@ class ChunkedReplyWriter {
     async push(chunk: string) {
         // Ensure that the buffer gets the updated text appended
         this.buffer += chunk;
+        // Ensure we don't get issues with formatting code
+        this.buffer.replace(/```/g, "\`\`\`");
         // A change has been made to the buffer, we are dirty
         this.dirty = true;
         // Don't update concurrently - we would be ratelimited
@@ -336,42 +338,24 @@ class ChunkedReplyWriter {
         while (this.dirty) {
             this.dirty = false;
 
-            // Escape triple ticks so ``` CONTENT ``` works
-            const escaped = escapeMarkdown(this.buffer, {
-                codeBlock: true,
-                inlineCodeContent: false,
-                codeBlockContent: false,
-                strikethrough: false,
-                bulletedList: false,
-                numberedList: false,
-                inlineCode: false,
-                maskedLink: false,
-                underline: false,
-                heading: false,
-                spoiler: false,
-                escape: false,
-                italic: false,
-                bold: false,
-            });
+            if (this.buffer.length > 1994) {
+                // The split will prioritize whitespace and whatnot
+                let split = this.buffer.lastIndexOf("\n\n", 1994);
+                if (split < 1000) split = this.buffer.lastIndexOf("\n", 1994);
+                if (split < 1500) split = this.buffer.lastIndexOf("\t", 1994);
+                if (split < 1750) split = 1994;
 
-            if (escaped.length > 1994) {
-                // The split will be at the last space, unless too far
-                let split = escaped.lastIndexOf(" ", 1994);
-                if (split < 1866) split = 1994;
-
-                // Complete the final edit of the reply message
-                const fmt_a = "```" + escaped.slice(0, split) + "```";
-                await safeEdit(this.reply, fmt_a);
-
-                // Update the buffer for the remaining text
-                this.buffer = escaped.slice(split).trimStart();
-
-                // Set a new reply message to the old reply message
+                // Determine the contents of the two messages
+                const fmt_a = "```" + this.buffer.slice(0, split) + "```";
+                this.buffer = this.buffer.slice(split).trimStart();
                 const fmt_b = "```" + this.buffer + "```";
+
+                // Update the old reply and send a new reply
+                await safeEdit(this.reply, fmt_a);
                 this.reply = await safeReply(this.reply, fmt_b);
             } else {
                 // Content can fit within the one message
-                await safeEdit(this.reply, "```" + escaped + "```");
+                await safeEdit(this.reply, "```" + this.buffer + "```");
             }
         }
 
