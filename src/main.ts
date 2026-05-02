@@ -441,7 +441,8 @@ async function safeSend(channel: Channel, content: string) {
 
 async function safeEdit(message: Message, content: string) {
     const allowedMentions = { parse: [], repliedUser: true };
-    return await message.edit({ content, allowedMentions });
+    if (message.content !== content) // no unnecessary edit
+        await message.edit({ content, allowedMentions });
 }
 
 async function safeReply(message: Message, content: string) {
