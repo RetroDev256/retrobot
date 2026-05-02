@@ -14,6 +14,7 @@ import words from "../words.json";
 import { randomInt } from "crypto";
 import ollama from "ollama";
 import { XMLParser } from "fast-xml-parser";
+import { setTimeout } from "timers/promises";
 
 const client = new Client({
     // Gimme everything ya got (permissions)
@@ -262,36 +263,56 @@ async function commandSay(message: Message) {
     await safeSend(message.channel, message.content.slice(5));
 }
 
-const slop_cooldowns: { [key: string]: number } = {};
+const slop_in_flight = new Set<string>(); // channels
+const slop_message_hist: { [key: string]: any } = {};
 async function commandSlop(message: Message) {
     const prompt = message.content.slice(6);
     if (prompt.length === 0)
         return await message.reply("-# missing slop prompt");
 
-    // Ratelimit the user if they attempt to use .slop too often
-    const last_time = slop_cooldowns[message.author.id];
-    if (last_time !== undefined) {
-        const rem = Math.ceil((last_time - Date.now()) / 1000 + 60);
-        const rate_msg = `-# slow down! ${rem} seconds remaining...`;
-        if (rem > 0) return await message.reply(rate_msg);
-    }
+    // Prevent users from using the AI while it is answering
+    if (slop_in_flight.has(message.channel.id))
+        return await message.reply("-# wait for the slop!");
 
-    // Create the original response message to pump tokens
-    const loading_msg = await message.reply("-# processing...");
-    const writer = new ChunkedReplyWriter(loading_msg);
-    slop_cooldowns[message.author.id] = Date.now();
+    try {
+        // Mark the slop as being generated.
+        slop_in_flight.add(message.channel.id);
 
-    // Run the model on the requested prompt
-    const response = await ollama.chat({
-        messages: [{ role: "user", content: prompt }],
-        model: process.env["OLLAMA_TEXT_MODEL"] as string,
-        stream: true,
-        think: false,
-    });
+        // Create the original response message to pump tokens
+        const loading_msg = await message.reply("-# processing...");
+        const writer = new ChunkedReplyWriter(loading_msg);
 
-    // Update the message on each token
-    for await (const chunk of response) {
-        writer.push(chunk.message.content);
+        // Create a channel message history if it does not exist
+        if (slop_message_hist[message.channel.id] === undefined)
+            slop_message_hist[message.channel.id] = [];
+
+        // Append the target message to the history
+        const hist_a = { role: "user", content: prompt };
+        slop_message_hist[message.channel.id].push(hist_a);
+
+        // Run the model on the requested prompt
+        const response = await ollama.chat({
+            model: process.env["OLLAMA_TEXT_MODEL"] as string,
+            messages: slop_message_hist[message.channel.id],
+            options: { num_ctx: 131072 },
+            keep_alive: 3600,
+            stream: true,
+            think: false,
+        });
+
+        // Update the message on each token
+        let response_text = "";
+        for await (const chunk of response) {
+            writer.push(chunk.message.content);
+            response_text += chunk.message.content;
+        }
+
+        // Attach the llm response to the slop history
+        const hist_b = { role: "assistant", content: response_text };
+        slop_message_hist[message.channel.id].push(hist_b);
+    } finally {
+        // Mark the slop generation as finished.
+        slop_in_flight.delete(message.channel.id);
     }
 }
 
@@ -441,7 +462,8 @@ async function safeSend(channel: Channel, content: string) {
 
 async function safeEdit(message: Message, content: string) {
     const allowedMentions = { parse: [], repliedUser: true };
-    if (message.content !== content) // no unnecessary edit
+    if (message.content !== content)
+        // no unnecessary edit
         await message.edit({ content, allowedMentions });
 }
 
