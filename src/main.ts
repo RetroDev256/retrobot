@@ -8,6 +8,7 @@ import {
     User,
     GuildMember,
     Guild,
+    escapeMarkdown,
 } from "discord.js";
 import words from "../words.json";
 import { randomInt } from "crypto";
@@ -38,25 +39,22 @@ client.on("guildMemberAdd", async (member) => {
 
 // ---------------------------------------------------- COMMAND IMPLEMENTATIONS
 
-const help_text = `\`\`\`
-- USAGE:
-  .help -> display this message
-- TOOLS:
-  .calc [EXPR] -> evaluate some math
-  .look [IMAGE] -> describe an image
-  .xkcd -> get the latest xkcd
-- RANDOM:
-  .acr [WORD] -> generate an acronym
-  .dice [SIDES] -> roll a die
-  .flip -> flip a coin
-- MESSAGING:
-  .msg [USER] [TEXT] -> message a user
-  .note [TEXT] -> message yourself
-  .say [TEXT] -> say something
-- FUNNY:
-  .love [USER] -> love a user
-  .smite [USER] -> mute for 30 seconds
-\`\`\``;
+const help_text = `
+**USAGE:**
+-# \`.acr [WORD]\` generate an acronym
+-# \`.calc [EXPR]\` evaluate some math
+-# \`.dice [SIDES]\` roll a die
+-# \`.flip\` flip a coin
+-# \`.help\` display this message
+-# \`.look [IMAGE]\` describe an image
+-# \`.love [USER]\` love a user
+-# \`.msg [USER] [TEXT]\` message a user
+-# \`.note [TEXT]\` message yourself
+-# \`.say [TEXT]\` say something
+-# \`.slop [TEXT]\` run a small LLM
+-# \`.smite [USER]\` mute for 30 seconds
+-# \`.xkcd\` get the latest xkcd
+`;
 
 client.on("messageCreate", async (message) => {
     // Do not react to this or other bots
@@ -126,6 +124,8 @@ async function commands(message: Message) {
             return await commandNote(message);
         case ".say":
             return await commandSay(message);
+        case ".slop":
+            return await commandSlop(message);
         case ".smite":
             return await commandSmite(message);
         case ".xkcd":
@@ -177,6 +177,7 @@ async function commandLook(message: Message) {
     // Fetch and convert to base 64 for passing to ollama
     const img = await (await fetch(file_0.url)).bytes();
     const loading_msg = await message.reply("-# processing...");
+    const writer = new ChunkedReplyWriter(loading_msg);
 
     // Run the model and ask it to describe the image
     const prompt = "Describe this image in one short paragraph.";
@@ -188,13 +189,8 @@ async function commandLook(message: Message) {
     });
 
     // Update the message on each token
-    let content: string = "";
     for await (const chunk of response) {
-        if (chunk.message.content !== "") {
-            content += chunk.message.content;
-            const fmt = "```" + content + "```";
-            await safeEdit(loading_msg, fmt);
-        }
+        writer.push(chunk.message.content);
     }
 }
 
@@ -256,6 +252,27 @@ async function commandSay(message: Message) {
     await safeSend(message.channel, message.content.slice(5));
 }
 
+async function commandSlop(message: Message) {
+    const prompt = message.content.slice(6);
+    if (prompt.length === 0)
+        return await message.reply("-# missing slop prompt");
+    const loading_msg = await message.reply("-# processing...");
+    const writer = new ChunkedReplyWriter(loading_msg);
+
+    // Run the model on the requested prompt
+    const response = await ollama.chat({
+        messages: [{ role: "user", content: prompt }],
+        model: process.env["OLLAMA_TEXT_MODEL"] as string,
+        stream: true,
+        think: false,
+    });
+
+    // Update the message on each token
+    for await (const chunk of response) {
+        writer.push(chunk.message.content);
+    }
+}
+
 const smite_cooldowns: { [key: string]: number } = {};
 async function commandSmite(message: Message) {
     const user = await selectUser(message.content.slice(7), message.guild);
@@ -294,6 +311,74 @@ async function commandXkcd(message: Message) {
 }
 
 // --------------------------------------------------- COMMAND HELPER FUNCTIONS
+
+class ChunkedReplyWriter {
+    reply: Message;
+    buffer: string = "";
+    dirty: boolean = false;
+    flushing: boolean = false;
+
+    constructor(reply: Message) {
+        this.reply = reply;
+    }
+
+    async push(chunk: string) {
+        // Ensure that the buffer gets the updated text appended
+        this.buffer += chunk;
+        // A change has been made to the buffer, we are dirty
+        this.dirty = true;
+        // Don't update concurrently - we would be ratelimited
+        if (this.flushing) return;
+        // mark the update as "in flight" - we are sending
+        this.flushing = true;
+
+        // Continually send updates while our buffer is dirty
+        while (this.dirty) {
+            this.dirty = false;
+
+            // Escape triple ticks so ``` CONTENT ``` works
+            const escaped = escapeMarkdown(this.buffer, {
+                codeBlock: true,
+                inlineCodeContent: false,
+                codeBlockContent: false,
+                strikethrough: false,
+                bulletedList: false,
+                numberedList: false,
+                inlineCode: false,
+                maskedLink: false,
+                underline: false,
+                heading: false,
+                spoiler: false,
+                escape: false,
+                italic: false,
+                bold: false,
+            });
+
+            if (escaped.length > 1994) {
+                // The split will be at the last space, unless too far
+                let split = escaped.lastIndexOf(" ", 1994);
+                if (split < 1866) split = 1994;
+
+                // Complete the final edit of the reply message
+                const fmt_a = "```" + escaped.slice(0, split) + "```";
+                await safeEdit(this.reply, fmt_a);
+
+                // Update the buffer for the remaining text
+                this.buffer = escaped.slice(split);
+
+                // Set a new reply message to the old reply message
+                const fmt_b = "```" + this.buffer + "```";
+                this.reply = await safeReply(this.reply, fmt_b);
+            } else {
+                // Content can fit within the one message
+                await safeEdit(this.reply, "```" + escaped + "```");
+            }
+        }
+
+        // mark the update as no longer "in flight"
+        this.flushing = false;
+    }
+}
 
 async function selectUser(
     user: string,
