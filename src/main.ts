@@ -46,6 +46,7 @@ const help_text = `
 -# \`.calc [EXPR]\` evaluate some math
 -# \`.dice [SIDES]\` roll a die
 -# \`.flip\` flip a coin
+-# \`.gen [TEXT]\` simple LLM prompting
 -# \`.help\` display this message
 -# \`.look [IMAGE]\` describe an image
 -# \`.love [USER]\` love a user
@@ -53,7 +54,7 @@ const help_text = `
 -# \`.note [TEXT]\` message yourself
 -# \`.reset\` reset slop session
 -# \`.say [TEXT]\` say something
--# \`.slop [TEXT]\` run a small LLM
+-# \`.slop [TEXT]\` LLM with session
 -# \`.smite [USER]\` mute for 30 seconds
 -# \`.xkcd\` get the latest xkcd
 `;
@@ -114,6 +115,8 @@ async function commands(message: Message) {
             return await commandDice(message);
         case ".flip":
             return await commandFlip(message);
+        case ".gen":
+            return await commandGen(message);
         case ".help":
             return await commandHelp(message);
         case ".look":
@@ -162,6 +165,40 @@ async function commandAcr(message: Message) {
 async function commandCalc(message: Message) {
     const expr = message.content.substring(6);
     await message.reply("-# = " + expr); // TODO
+}
+
+const gen_cooldowns: { [key: string]: number } = {};
+async function commandGen(message: Message) {
+    const prompt = message.content.slice(5);
+    if (prompt.length === 0) return await message.reply("-# missing prompt");
+
+    // Ratelimit the user if they attempt to use .gen too often
+    const last_time = gen_cooldowns[message.author.id];
+    if (last_time !== undefined) {
+        const rem = Math.ceil((last_time - Date.now()) / 1000 + 60);
+        const rate_msg = `-# slow down! ${rem} seconds remaining...`;
+        if (rem > 0) return await message.reply(rate_msg);
+    }
+
+    // Create the original response message to pump tokens
+    const loading_msg = await message.reply("-# processing...");
+    const writer = new ChunkedReplyWriter(loading_msg);
+    gen_cooldowns[message.author.id] = Date.now();
+
+    // Run the model on the requested prompt
+    const response = await ollama.generate({
+        model: process.env["OLLAMA_TEXT_MODEL"] as string,
+        options: { num_ctx: 131072 },
+        keep_alive: 3600,
+        prompt: prompt,
+        stream: true,
+        think: false,
+    });
+
+    // Update the message on each token
+    for await (const chunk of response) {
+        writer.push(chunk.response);
+    }
 }
 
 async function commandHelp(message: Message) {
