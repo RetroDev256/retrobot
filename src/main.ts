@@ -178,7 +178,7 @@ async function commandGen(message: Message) {
     // Run the model on the requested prompt
     const response = await ollama.generate({
         model: process.env["OLLAMA_TEXT_MODEL"] as string,
-        options: { num_ctx: 16384, num_predict: 16384 },
+        options: { num_ctx: 16384 },
         keep_alive: 3600,
         prompt: prompt,
         stream: true,
@@ -278,7 +278,7 @@ async function commandSlop(message: Message) {
     const response = await ollama.chat({
         model: process.env["OLLAMA_TEXT_MODEL"] as string,
         messages: slop_message_hist[message.channel.id],
-        options: { num_ctx: 16384, num_predict: 16384 },
+        options: { num_ctx: 16384 },
         keep_alive: 3600,
         stream: true,
         think: false,
