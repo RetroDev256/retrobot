@@ -44,6 +44,7 @@ const help_text = `
 **USAGE:**
 -# \`.acr [WORD]\` generate an acronym
 -# \`.calc [EXPR]\` evaluate some math
+-# \`.clear\` clear slop session
 -# \`.dice [SIDES]\` roll a die
 -# \`.flip\` flip a coin
 -# \`.gen [TEXT]\` simple LLM prompting
@@ -52,10 +53,10 @@ const help_text = `
 -# \`.love [USER]\` love a user
 -# \`.msg [USER] [TEXT]\` message a user
 -# \`.note [TEXT]\` message yourself
--# \`.reset\` reset slop session
 -# \`.say [TEXT]\` say something
 -# \`.slop [TEXT]\` LLM with session
 -# \`.smite [USER]\` mute for 30 seconds
+-# \`.stop\` stop .gen, .look, or .slop
 -# \`.xkcd\` get the latest xkcd
 `;
 
@@ -111,6 +112,8 @@ async function commands(message: Message) {
             return await commandAcr(message);
         case ".calc":
             return await commandCalc(message);
+        case ".clear":
+            return await commandClear(message);
         case ".dice":
             return await commandDice(message);
         case ".flip":
@@ -127,14 +130,14 @@ async function commands(message: Message) {
             return await commandMsg(message);
         case ".note":
             return await commandNote(message);
-        case ".reset":
-            return await commandReset(message);
         case ".say":
             return await commandSay(message);
         case ".slop":
             return await commandSlop(message);
         case ".smite":
             return await commandSmite(message);
+        case ".stop":
+            return await commandStop(message);
         case ".xkcd":
             return await commandXkcd(message);
     }
@@ -167,37 +170,50 @@ async function commandCalc(message: Message) {
     await message.reply("-# = " + expr); // TODO
 }
 
-const gen_cooldowns: { [key: string]: number } = {};
+async function commandClear(message: Message) {
+    if (llm_in_flight.has(message.channel.id))
+        return await message.reply("-# .stop first");
+    slop_message_hist[message.channel.id] = [];
+    await message.react("🗑️");
+}
+
 async function commandGen(message: Message) {
     const prompt = message.content.slice(5);
     if (prompt.length === 0) return await message.reply("-# missing prompt");
 
-    // Ratelimit the user if they attempt to use .gen too often
-    const last_time = gen_cooldowns[message.author.id];
-    if (last_time !== undefined) {
-        const rem = Math.ceil((last_time - Date.now()) / 1000 + 60);
-        const rate_msg = `-# slow down! ${rem} seconds remaining...`;
-        if (rem > 0) return await message.reply(rate_msg);
-    }
+    // Prevent users from using the AI while it is answering
+    if (llm_in_flight.has(message.channel.id))
+        return await message.reply("-# wait until done");
 
-    // Create the original response message to pump tokens
-    const loading_msg = await message.reply("-# processing...");
-    const writer = new ChunkedReplyWriter(loading_msg);
-    gen_cooldowns[message.author.id] = Date.now();
+    try {
+        // Mark the llm as being in-use
+        llm_in_flight.add(message.channel.id);
 
-    // Run the model on the requested prompt
-    const response = await ollama.generate({
-        model: process.env["OLLAMA_TEXT_MODEL"] as string,
-        options: { num_ctx: 131072 },
-        keep_alive: 3600,
-        prompt: prompt,
-        stream: true,
-        think: false,
-    });
+        // Create the original response message to pump tokens
+        const loading_msg = await message.reply("-# processing...");
+        const writer = new ChunkedReplyWriter(loading_msg);
 
-    // Update the message on each token
-    for await (const chunk of response) {
-        writer.push(chunk.response);
+        // Run the model on the requested prompt
+        const response = await ollama.generate({
+            model: process.env["OLLAMA_TEXT_MODEL"] as string,
+            options: { num_ctx: 65536 },
+            keep_alive: 3600,
+            prompt: prompt,
+            stream: true,
+            think: false,
+        });
+
+        // Update the message on each token
+        for await (const chunk of response) {
+            writer.push(chunk.response);
+            if (!llm_in_flight.has(message.channel.id)) {
+                response.abort();
+                break;
+            }
+        }
+    } finally {
+        // Mark the llm usage as finished.
+        llm_in_flight.delete(message.channel.id);
     }
 }
 
@@ -205,7 +221,6 @@ async function commandHelp(message: Message) {
     await message.reply(help_text);
 }
 
-const look_cooldowns: { [key: string]: number } = {};
 async function commandLook(message: Message) {
     if (message.attachments.size === 0)
         return await message.reply("-# missing an attachment");
@@ -216,32 +231,39 @@ async function commandLook(message: Message) {
     if (!file_0?.contentType?.startsWith("image/"))
         return await message.reply("-# not an image");
 
-    // Ratelimit the user if they attempt to use .look too often
-    const last_time = look_cooldowns[message.author.id];
-    if (last_time !== undefined) {
-        const rem = Math.ceil((last_time - Date.now()) / 1000 + 60);
-        const rate_msg = `-# slow down! ${rem} seconds remaining...`;
-        if (rem > 0) return await message.reply(rate_msg);
-    }
+    // Prevent users from using the AI while it is answering
+    if (llm_in_flight.has(message.channel.id))
+        return await message.reply("-# wait until done");
 
-    // Fetch and convert to base 64 for passing to ollama
-    const img = await (await fetch(file_0.url)).bytes();
-    const loading_msg = await message.reply("-# processing...");
-    const writer = new ChunkedReplyWriter(loading_msg);
-    look_cooldowns[message.author.id] = Date.now();
+    try {
+        // Mark the llm as being in-use
+        llm_in_flight.add(message.channel.id);
 
-    // Run the model and ask it to describe the image
-    const prompt = "Describe this image in one short paragraph.";
-    const response = await ollama.chat({
-        messages: [{ role: "user", content: prompt, images: [img] }],
-        model: process.env["OLLAMA_IMAGE_MODEL"] as string,
-        stream: true,
-        think: false,
-    });
+        // Fetch and convert to base 64 for passing to ollama
+        const img = await (await fetch(file_0.url)).bytes();
+        const loading_msg = await message.reply("-# processing...");
+        const writer = new ChunkedReplyWriter(loading_msg);
 
-    // Update the message on each token
-    for await (const chunk of response) {
-        writer.push(chunk.message.content);
+        // Run the model and ask it to describe the image
+        const prompt = "Describe this image in one short paragraph.";
+        const response = await ollama.chat({
+            messages: [{ role: "user", content: prompt, images: [img] }],
+            model: process.env["OLLAMA_IMAGE_MODEL"] as string,
+            stream: true,
+            think: false,
+        });
+
+        // Update the message on each token
+        for await (const chunk of response) {
+            writer.push(chunk.message.content);
+            if (!llm_in_flight.has(message.channel.id)) {
+                response.abort();
+                break;
+            }
+        }
+    } finally {
+        // Mark the llm usage as finished.
+        llm_in_flight.delete(message.channel.id);
     }
 }
 
@@ -297,32 +319,28 @@ async function commandNote(message: Message) {
     await message.react("🗒️");
 }
 
-async function commandReset(message: Message) {
-    slop_in_flight.delete(message.channel.id);
-    slop_message_hist[message.channel.id] = [];
-    await message.react("✅");
-}
-
 async function commandSay(message: Message) {
     const unsendable = !message.channel.isSendable();
     if (unsendable) return await message.reply("-# channel unsendable");
     await safeSend(message.channel, message.content.slice(5));
 }
 
-const slop_in_flight = new Set<string>(); // channels
 const slop_message_hist: { [key: string]: any } = {};
 async function commandSlop(message: Message) {
     const prompt = message.content.slice(6);
     if (prompt.length === 0)
         return await message.reply("-# missing slop prompt");
 
+    // Track the generated response
+    let response_text = "";
+
     // Prevent users from using the AI while it is answering
-    if (slop_in_flight.has(message.channel.id))
-        return await message.reply("-# wait for the slop");
+    if (llm_in_flight.has(message.channel.id))
+        return await message.reply("-# wait until done");
 
     try {
-        // Mark the slop as being generated.
-        slop_in_flight.add(message.channel.id);
+        // Mark the llm as being in-use
+        llm_in_flight.add(message.channel.id);
 
         // Create the original response message to pump tokens
         const loading_msg = await message.reply("-# processing...");
@@ -333,32 +351,37 @@ async function commandSlop(message: Message) {
             slop_message_hist[message.channel.id] = [];
 
         // Append the target message to the history
-        const hist_a = { role: "user", content: prompt };
-        slop_message_hist[message.channel.id].push(hist_a);
+        const hist = { role: "user", content: prompt };
+        slop_message_hist[message.channel.id].push(hist);
 
         // Run the model on the requested prompt
         const response = await ollama.chat({
             model: process.env["OLLAMA_TEXT_MODEL"] as string,
             messages: slop_message_hist[message.channel.id],
-            options: { num_ctx: 131072 },
+            options: { num_ctx: 65536 },
             keep_alive: 3600,
             stream: true,
             think: false,
         });
 
         // Update the message on each token
-        let response_text = "";
         for await (const chunk of response) {
             writer.push(chunk.message.content);
             response_text += chunk.message.content;
+            if (!llm_in_flight.has(message.channel.id)) {
+                response.abort();
+                break;
+            }
+        }
+    } finally {
+        if (response_text.length !== 0) {
+            // Store the llm response in the slop history
+            const hist = { role: "assistant", content: response_text };
+            slop_message_hist[message.channel.id].push(hist);
         }
 
-        // Attach the llm response to the slop history
-        const hist_b = { role: "assistant", content: response_text };
-        slop_message_hist[message.channel.id].push(hist_b);
-    } finally {
-        // Mark the slop generation as finished.
-        slop_in_flight.delete(message.channel.id);
+        // Mark the llm usage as finished.
+        llm_in_flight.delete(message.channel.id);
     }
 }
 
@@ -389,6 +412,13 @@ async function commandSmite(message: Message) {
 
     await message.reply("-# user successfully smitten");
     smite_cooldowns[message.author.id] = Date.now();
+}
+
+const llm_in_flight = new Set<string>(); // channels
+async function commandStop(message: Message) {
+    if (!llm_in_flight.delete(message.channel.id))
+        return await message.reply("-# nothing is running...");
+    await message.react("🛑");
 }
 
 async function commandXkcd(message: Message) {
