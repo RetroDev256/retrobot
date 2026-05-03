@@ -9,25 +9,18 @@ import {
     GuildMember,
     Guild,
 } from "discord.js";
-import ollama from "ollama";
-import words from "../words.json";
+import { Ollama } from "ollama";
 import { randomInt } from "crypto";
 import { XMLParser } from "fast-xml-parser";
-import { Agent, setGlobalDispatcher } from "undici";
+import words from "../words.json";
 
-setGlobalDispatcher(
-    new Agent({
-        // one hour HTTP timeouts
-        headersTimeout: 3_600_000,
-        bodyTimeout: 3_600_000,
-    }),
-);
+// ollama interface: HTTP requests to model runner fetch without timeouts
+const ollama = new Ollama({ fetch: (url, init) => fetch(url, init) });
 
-const client = new Client({
-    // Gimme everything ya got (permissions)
-    intents: Object.values(GatewayIntentBits) as GatewayIntentBits[],
-    partials: Object.values(Partials) as Partials[],
-});
+// discord.js client: all intents and partials are requested on login
+const intents = Object.values(GatewayIntentBits) as GatewayIntentBits[];
+const partials = Object.values(Partials) as Partials[];
+const client = new Client({ intents: intents, partials: partials });
 
 // ------------------------------------------------------------ STARTUP MESSAGE
 
