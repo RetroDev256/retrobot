@@ -61,16 +61,18 @@ client.on("messageCreate", async (message) => {
     // Do not react to this or other bots
     if (message.author.bot) return;
 
-    try {
-        await reactMaps(message);
-        await replyMaps(message);
-        await replyGhat(message);
-        await commands(message);
-    } catch (err: any) {
-        // Report any unhandled errors
-        const safe = `${err}`.replace(/\s+/g, " ");
-        await message.reply("-# " + safe);
-    }
+    (async () => {
+        try {
+            await reactMaps(message);
+            await replyMaps(message);
+            await replyGhat(message);
+            await commands(message);
+        } catch (err: any) {
+            // Report any unhandled errors
+            const safe = `${err}`.replace(/\s+/g, " ");
+            await message.reply("-# " + safe);
+        }
+    })();
 });
 
 async function reactMaps(message: Message) {
@@ -187,18 +189,10 @@ async function commandGen(message: Message) {
         think: false,
     });
 
-    (async () => {
-        try {
-            // Update the message on each token
-            for await (const chunk of response) {
-                writer.push(chunk.response);
-            }
-        } catch (err: any) {
-            // Report any unhandled errors
-            const safe = `${err}`.replace(/\s+/g, " ");
-            message.reply("-# " + safe);
-        }
-    })();
+    // Update the message on each token
+    for await (const chunk of response) {
+        writer.push(chunk.response);
+    }
 }
 
 async function commandHelp(message: Message) {
@@ -229,18 +223,10 @@ async function commandLook(message: Message) {
         think: false,
     });
 
-    (async () => {
-        try {
-            // Update the message on each token
-            for await (const chunk of response) {
-                writer.push(chunk.message.content);
-            }
-        } catch (err: any) {
-            // Report any unhandled errors
-            const safe = `${err}`.replace(/\s+/g, " ");
-            message.reply("-# " + safe);
-        }
-    })();
+    // Update the message on each token
+    for await (const chunk of response) {
+        writer.push(chunk.message.content);
+    }
 }
 
 const love_cooldowns: { [key: string]: number } = {};
@@ -330,26 +316,20 @@ async function commandSlop(message: Message) {
         think: false,
     });
 
-    (async () => {
-        // Record the llm response
-        let response_text = "";
+    // Record the llm response
+    let response_text = "";
 
-        try {
-            // Update the message on each token
-            for await (const chunk of response) {
-                writer.push(chunk.message.content);
-                response_text += chunk.message.content;
-            }
-        } catch (err: any) {
-            // Report any unhandled errors
-            const safe = `${err}`.replace(/\s+/g, " ");
-            message.reply("-# " + safe);
-        } finally {
-            // Store the llm response in the slop history
-            const hist_b = { role: "assistant", content: response_text };
-            slop_message_hist[message.channel.id].push(hist_b);
+    try {
+        // Update the message on each token
+        for await (const chunk of response) {
+            writer.push(chunk.message.content);
+            response_text += chunk.message.content;
         }
-    })();
+    } finally {
+        // Store the llm response in the slop history
+        const hist_b = { role: "assistant", content: response_text };
+        slop_message_hist[message.channel.id].push(hist_b);
+    }
 }
 
 const smite_cooldowns: { [key: string]: number } = {};
