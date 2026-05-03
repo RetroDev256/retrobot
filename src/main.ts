@@ -9,9 +9,9 @@ import {
     GuildMember,
     Guild,
 } from "discord.js";
+import ollama from "ollama";
 import words from "../words.json";
 import { randomInt } from "crypto";
-import ollama from "ollama";
 import { XMLParser } from "fast-xml-parser";
 
 const client = new Client({
@@ -61,18 +61,16 @@ client.on("messageCreate", async (message) => {
     // Do not react to this or other bots
     if (message.author.bot) return;
 
-    (async () => {
-        try {
-            await reactMaps(message);
-            await replyMaps(message);
-            await replyGhat(message);
-            await commands(message);
-        } catch (err: any) {
-            // Report any unhandled errors
-            const safe = `${err}`.replace(/\s+/g, " ");
-            await message.reply("-# " + safe);
-        }
-    })();
+    try {
+        await reactMaps(message);
+        await replyMaps(message);
+        await replyGhat(message);
+        await commands(message);
+    } catch (err: any) {
+        // Report unhandled errors in small lettering
+        const safe = `-# ${err}`.replace(/\s+/g, " ");
+        message.reply(safe).catch(() => {}); // ignore
+    }
 });
 
 async function reactMaps(message: Message) {
@@ -121,8 +119,6 @@ async function commands(message: Message) {
             return await commandGen(message);
         case ".help":
             return await commandHelp(message);
-        case ".look":
-            return await commandLook(message);
         case ".love":
             return await commandLove(message);
         case ".msg":
@@ -184,6 +180,7 @@ async function commandGen(message: Message) {
     const response = await ollama.generate({
         model: process.env["OLLAMA_TEXT_MODEL"] as string,
         options: { num_ctx: 16384 },
+        keep_alive: 3600,
         prompt: prompt,
         stream: true,
         think: false,
@@ -197,36 +194,6 @@ async function commandGen(message: Message) {
 
 async function commandHelp(message: Message) {
     await message.reply(help_text);
-}
-
-async function commandLook(message: Message) {
-    if (message.attachments.size === 0)
-        return await message.reply("-# missing an attachment");
-    if (message.attachments.size > 1)
-        return await message.reply("-# too many attachments");
-
-    const file_0 = message.attachments.at(0);
-    if (!file_0?.contentType?.startsWith("image/"))
-        return await message.reply("-# not an image");
-
-    // Fetch and convert to base 64 for passing to ollama
-    const img = await (await fetch(file_0.url)).bytes();
-    const loading_msg = await message.reply("-# processing...");
-    const writer = new ChunkedReplyWriter(loading_msg);
-
-    // Run the model and ask it to describe the image
-    const prompt = "Describe this image in one short paragraph.";
-    const response = await ollama.chat({
-        messages: [{ role: "user", content: prompt, images: [img] }],
-        model: process.env["OLLAMA_IMAGE_MODEL"] as string,
-        stream: true,
-        think: false,
-    });
-
-    // Update the message on each token
-    for await (const chunk of response) {
-        writer.push(chunk.message.content);
-    }
 }
 
 const love_cooldowns: { [key: string]: number } = {};
@@ -312,6 +279,7 @@ async function commandSlop(message: Message) {
         model: process.env["OLLAMA_TEXT_MODEL"] as string,
         messages: slop_message_hist[message.channel.id],
         options: { num_ctx: 16384 },
+        keep_alive: 3600,
         stream: true,
         think: false,
     });
