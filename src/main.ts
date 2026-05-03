@@ -184,7 +184,6 @@ async function commandGen(message: Message) {
     const response = await ollama.generate({
         model: process.env["OLLAMA_TEXT_MODEL"] as string,
         options: { num_ctx: 16384 },
-        keep_alive: 3_600,
         prompt: prompt,
         stream: true,
         think: false,
@@ -221,7 +220,6 @@ async function commandLook(message: Message) {
     const response = await ollama.chat({
         messages: [{ role: "user", content: prompt, images: [img] }],
         model: process.env["OLLAMA_IMAGE_MODEL"] as string,
-        keep_alive: 3_600,
         stream: true,
         think: false,
     });
@@ -315,7 +313,6 @@ async function commandSlop(message: Message) {
         model: process.env["OLLAMA_TEXT_MODEL"] as string,
         messages: slop_message_hist[message.channel.id],
         options: { num_ctx: 16384 },
-        keep_alive: 3_600,
         stream: true,
         think: false,
     });
