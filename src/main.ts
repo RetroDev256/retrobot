@@ -289,18 +289,18 @@ async function commandMsg(message: Message) {
     const user = await selectUser(command[0] as string, message.guild);
     if (user === undefined) return await message.reply("-# unknown user");
     await user.send(`-# .msg ${message.author}\n${content}`);
-    await message.react("👍");
+    await message.react("📨");
 }
 
 async function commandNote(message: Message) {
     await message.author.send(`-# .note\n${message.content.slice(6)}`);
-    await message.react("👍");
+    await message.react("🗒️");
 }
 
 async function commandReset(message: Message) {
     slop_in_flight.delete(message.channel.id);
     slop_message_hist[message.channel.id] = [];
-    await message.reply("-# slop session reset");
+    await message.react("✅");
 }
 
 async function commandSay(message: Message) {
