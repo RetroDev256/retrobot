@@ -192,7 +192,7 @@ async function commandGen(message: Message) {
             options: { num_ctx: 16384 },
             prompt: prompt,
             stream: true,
-            think: false,
+            think: true,
         };
 
         // Fetch from the ollama API on the server with the body & signal
