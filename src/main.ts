@@ -9,7 +9,6 @@ import {
     GuildMember,
     Guild,
 } from "discord.js";
-import ollama from "ollama";
 import { randomInt } from "crypto";
 import { XMLParser } from "fast-xml-parser";
 import words from "../words.json";
@@ -187,22 +186,45 @@ async function commandGen(message: Message) {
     const { signal, cleanup } = await stopAdd(message);
 
     try {
-        // Run the model on the requested prompt
-        const response = await ollama.generate({
+        const body = {
             model: process.env["OLLAMA_TEXT_MODEL"] as string,
             options: { num_ctx: 16384 },
             prompt: prompt,
             stream: true,
             think: false,
             raw: true,
+        };
+
+        // Fetch from the ollama API on the server with the body & signal
+        const response = await fetch("http://localhost:11434/api/generate", {
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+            method: "POST",
+            signal,
         });
 
-        // Update the message on each token
-        for await (const chunk of response) {
-            writer.push(chunk.response);
-            if (signal.aborted) {
-                response.abort();
-                break;
+        if (response.body === null)
+            // This error should be rare, I hope - not sure about it.
+            return await message.reply("-# no ollama response body");
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer: string = "";
+
+        while (true) {
+            // Read the next token from the response stream
+            const { value, done } = await reader.read();
+            if (done || signal.aborted) break;
+
+            // Add the decoded value to the buffer
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n"); // NDJSON format
+            buffer = lines.pop() || ""; // retain partial JSON
+
+            // Process the completed lines from ollama
+            for (const line of lines) {
+                const json = JSON.parse(line);
+                writer.push(json.response); 
             }
         }
     } finally {
@@ -255,19 +277,40 @@ async function commandLook(message: Message) {
         // Run the model and ask it to describe the image
         const img = await (await fetch(file_0.url)).bytes();
         const prompt = "Describe this image in one short paragraph.";
-        const response = await ollama.chat({
-            messages: [{ role: "user", content: prompt, images: [img] }],
-            model: process.env["OLLAMA_IMAGE_MODEL"] as string,
-            stream: true,
-            think: false,
+        const msg = { role: "user", content: prompt, images: [img.toBase64()] };
+        const model = process.env["OLLAMA_IMAGE_MODEL"] as string;
+        const body = { model: model, messages: [msg], stream: true };
+
+        // Fetch from the ollama API on the server with the body & signal
+        const response = await fetch("http://localhost:11434/api/chat", {
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+            method: "POST",
+            signal,
         });
 
-        // Update the message on each token
-        for await (const chunk of response) {
-            writer.push(chunk.message.content);
-            if (signal.aborted) {
-                response.abort();
-                break;
+        if (response.body === null)
+            // This error should be rare, I hope - not sure about it.
+            return await message.reply("-# no ollama response body");
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer: string = "";
+
+        while (true) {
+            // Read the next token from the response stream
+            const { value, done } = await reader.read();
+            if (done || signal.aborted) break;
+
+            // Add the decoded value to the buffer
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n"); // NDJSON format
+            buffer = lines.pop() || ""; // retain partial JSON
+
+            // Process the completed lines from ollama
+            for (const line of lines) {
+                const json = JSON.parse(line);
+                writer.push(json.message.content);
             }
         }
     } finally {
@@ -358,22 +401,45 @@ async function commandSlop(message: Message) {
     const { signal, cleanup } = await stopAdd(message);
 
     try {
-        // Run the model on the requested prompt
-        const response = await ollama.chat({
+        const body = {
             model: process.env["OLLAMA_TEXT_MODEL"] as string,
             messages: slop_message_hist[message.channel.id],
             options: { num_ctx: 16384 },
             stream: true,
             think: false,
+        };
+
+        // Fetch from the ollama API on the server with the body & signal
+        const response = await fetch("http://localhost:11434/api/chat", {
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+            method: "POST",
+            signal,
         });
 
-        // Update the message on each token
-        for await (const chunk of response) {
-            writer.push(chunk.message.content);
-            response_text += chunk.message.content;
-            if (signal.aborted) {
-                response.abort();
-                break;
+        if (response.body === null)
+            // This error should be rare, I hope - not sure about it.
+            return await message.reply("-# no ollama response body");
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer: string = "";
+
+        while (true) {
+            // Read the next token from the response stream
+            const { value, done } = await reader.read();
+            if (done || signal.aborted) break;
+
+            // Add the decoded value to the buffer
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n"); // NDJSON format
+            buffer = lines.pop() || ""; // retain partial JSON
+
+            // Process the completed lines from ollama
+            for (const line of lines) {
+                const json = JSON.parse(line);
+                writer.push(json.message.content);
+                response_text += json.message.content;
             }
         }
     } finally {

@@ -46,7 +46,6 @@ pub fn build(b: *std.Build) !void {
     for (@as([]const []const u8, &.{
         "discord.js", // To interface with discord
         "fast-xml-parser", // For pulling xkcd rss feed
-        "ollama", // For running LLM vision models
     })) |dependency| {
         dep_update.dependOn(&b.addSystemCommand(
             &.{ "bun", "add", dependency, "--silent" },
