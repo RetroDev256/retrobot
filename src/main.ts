@@ -179,10 +179,11 @@ async function commandGen(message: Message) {
     if (prompt.length === 0) return await message.reply("-# missing prompt");
 
     // Create the original response message to pump tokens
-    const loading_msg = await message.reply("-# processing...");
+    const loading_msg = await message.reply("-# starting .gen...");
     const writer = new ChunkedReplyWriter(loading_msg);
 
     // Create an abort controller for the .stop command
+    await loading_msg.edit("-# registering for .stop...");
     const { signal, cleanup } = await stopAdd(message);
 
     try {
@@ -192,10 +193,10 @@ async function commandGen(message: Message) {
             prompt: prompt,
             stream: true,
             think: false,
-            raw: true,
         };
 
         // Fetch from the ollama API on the server with the body & signal
+        await loading_msg.edit("-# POST-ing to the ollama API...");
         const response = await fetch("http://localhost:11434/api/generate", {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body),
@@ -207,6 +208,7 @@ async function commandGen(message: Message) {
             // This error should be rare, I hope - not sure about it.
             return await message.reply("-# no ollama response body");
 
+        await loading_msg.edit("-# constructing stream...");
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer: string = "";
@@ -224,7 +226,7 @@ async function commandGen(message: Message) {
             // Process the completed lines from ollama
             for (const line of lines) {
                 const json = JSON.parse(line);
-                writer.push(json.response); 
+                writer.push(json.response);
             }
         }
     } finally {
@@ -267,14 +269,16 @@ async function commandLook(message: Message) {
         return await message.reply("-# not an image");
 
     // Fetch and convert to base 64 for passing to ollama
-    const loading_msg = await message.reply("-# processing...");
+    const loading_msg = await message.reply("-# starting .look...");
     const writer = new ChunkedReplyWriter(loading_msg);
 
     // Create an abort controller for the .stop command
+    await loading_msg.edit("-# registering for .stop...");
     const { signal, cleanup } = await stopAdd(message);
 
     try {
         // Run the model and ask it to describe the image
+        await loading_msg.edit("-# downloading image bytes...");
         const img = await (await fetch(file_0.url)).bytes();
         const prompt = "Describe this image in one short paragraph.";
         const msg = { role: "user", content: prompt, images: [img.toBase64()] };
@@ -282,6 +286,7 @@ async function commandLook(message: Message) {
         const body = { model: model, messages: [msg], stream: true };
 
         // Fetch from the ollama API on the server with the body & signal
+        await loading_msg.edit("-# POST-ing to the ollama API...");
         const response = await fetch("http://localhost:11434/api/chat", {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body),
@@ -293,6 +298,7 @@ async function commandLook(message: Message) {
             // This error should be rare, I hope - not sure about it.
             return await message.reply("-# no ollama response body");
 
+        await loading_msg.edit("-# constructing stream...");
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer: string = "";
@@ -383,7 +389,7 @@ async function commandSlop(message: Message) {
         return await message.reply("-# missing slop prompt");
 
     // Create the original response message to pump tokens
-    const loading_msg = await message.reply("-# processing...");
+    const loading_msg = await message.reply("-# starting .slop...");
     const writer = new ChunkedReplyWriter(loading_msg);
 
     // Create a channel message history if it does not exist
@@ -398,6 +404,7 @@ async function commandSlop(message: Message) {
     let response_text = "";
 
     // Create an abort controller for the .stop command
+    await loading_msg.edit("-# registering for .stop...");
     const { signal, cleanup } = await stopAdd(message);
 
     try {
@@ -410,6 +417,7 @@ async function commandSlop(message: Message) {
         };
 
         // Fetch from the ollama API on the server with the body & signal
+        await loading_msg.edit("-# POST-ing to the ollama API...");
         const response = await fetch("http://localhost:11434/api/chat", {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body),
@@ -419,8 +427,9 @@ async function commandSlop(message: Message) {
 
         if (response.body === null)
             // This error should be rare, I hope - not sure about it.
-            return await message.reply("-# no ollama response body");
+            return await loading_msg.edit("-# no ollama response body");
 
+        await loading_msg.edit("-# constructing stream...");
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer: string = "";
