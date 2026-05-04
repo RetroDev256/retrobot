@@ -22,7 +22,7 @@ const client = new Client({ intents: intents, partials: partials });
 
 // Display bot user tag when we have logged in
 client.once("clientReady", async (client) => {
-    await debug(`Logged in as ${client.user.tag}`);
+    await debug(`Logged in as ${client.user}`);
 });
 
 // ----------------------------------------------------------- WELCOME MESSAGES
@@ -333,7 +333,7 @@ async function commandLove(message: Message) {
 
     const unsendable = !message.channel.isSendable();
     if (unsendable) return await message.reply("-# channel unsendable");
-    const content = `❤️😊❤️ <@${message.author.id}> loves <@${user.id}> ❤️😚❤️`;
+    const content = `❤️😊❤️ ${message.author} loves ${user} ❤️😚❤️`;
     await (message.channel as SendableChannels).send(content);
     love_cooldowns[message.author.id] = Date.now();
 }
@@ -456,7 +456,7 @@ const stop_queues = new Map<string, AbortController[]>();
 async function commandStop(message: Message) {
     const controller = stop_queues.get(message.channel.id)?.shift();
     if (controller === undefined) return message.reply("-# nothing running");
-    controller.abort("aborted via .stop");
+    controller.abort(`aborted by ${message.author}`);
     await message.react("🛑");
 }
 
