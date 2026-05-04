@@ -389,7 +389,7 @@ async function commandSlop(message: Message) {
 const stop_queues = new Map<string, AbortController[]>();
 async function commandStop(message: Message) {
     const controller = stop_queues.get(message.channel.id)?.shift();
-    if (controller === undefined) return message.reply("-# nothing here");
+    if (controller === undefined) return message.reply("-# nothing running");
     controller.abort("aborted via .stop");
     await message.react("🛑");
 }
