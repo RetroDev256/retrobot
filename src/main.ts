@@ -40,10 +40,10 @@ const help_text = `
 **USAGE:**
 -# \`.acr [WORD]\` generate an acronym
 -# \`.calc [EXPR]\` evaluate some math
--# \`.clear\` clear slop session
+-# \`.clear\` clear .slop session
 -# \`.dice [SIDES]\` roll a die
 -# \`.flip\` flip a coin
--# \`.gen [TEXT]\` simple LLM prompting
+-# \`.gen [TEXT]\` one-shot HQ LLM
 -# \`.hate [USER]\` hate a user
 -# \`.help\` display this message
 -# \`.look [IMAGE]\` describe an image
@@ -51,7 +51,7 @@ const help_text = `
 -# \`.msg [USER] [TEXT]\` message a user
 -# \`.note [TEXT]\` message yourself
 -# \`.say [TEXT]\` say something
--# \`.slop [TEXT]\` LLM with session
+-# \`.slop [TEXT]\` LQ sessioned LLM
 -# \`.stop\` stop .slop, .gen, and .look
 -# \`.smite [USER]\` mute for 30 seconds
 -# \`.xkcd\` get the latest xkcd
@@ -188,7 +188,7 @@ async function commandGen(message: Message) {
 
     try {
         const body = {
-            model: process.env["OLLAMA_TEXT_MODEL"] as string,
+            model: process.env["OLLAMA_HQ_LLM"] as string,
             options: { num_ctx: 16384 },
             prompt: prompt,
             stream: true,
@@ -409,7 +409,7 @@ async function commandSlop(message: Message) {
 
     try {
         const body = {
-            model: process.env["OLLAMA_TEXT_MODEL"] as string,
+            model: process.env["OLLAMA_LQ_LLM"] as string,
             messages: slop_message_hist[message.channel.id],
             options: { num_ctx: 16384 },
             stream: true,
