@@ -9,13 +9,10 @@ import {
     GuildMember,
     Guild,
 } from "discord.js";
-import { Ollama } from "ollama";
+import ollama from "ollama";
 import { randomInt } from "crypto";
 import { XMLParser } from "fast-xml-parser";
 import words from "../words.json";
-
-// ollama interface: HTTP requests to model runner fetch without timeouts
-const ollama = new Ollama({ fetch: (url, init) => fetch(url, init) });
 
 // discord.js client: all intents and partials are requested on login
 const intents = Object.values(GatewayIntentBits) as GatewayIntentBits[];
@@ -48,6 +45,7 @@ const help_text = `
 -# \`.dice [SIDES]\` roll a die
 -# \`.flip\` flip a coin
 -# \`.gen [TEXT]\` simple LLM prompting
+-# \`.hate [USER]\` hate a user
 -# \`.help\` display this message
 -# \`.look [IMAGE]\` describe an image
 -# \`.love [USER]\` love a user
@@ -55,6 +53,7 @@ const help_text = `
 -# \`.note [TEXT]\` message yourself
 -# \`.say [TEXT]\` say something
 -# \`.slop [TEXT]\` LLM with session
+-# \`.stop\` stop .slop, .gen, and .look
 -# \`.smite [USER]\` mute for 30 seconds
 -# \`.xkcd\` get the latest xkcd
 `;
@@ -119,6 +118,8 @@ async function commands(message: Message) {
             return await commandFlip(message);
         case ".gen":
             return await commandGen(message);
+        case ".hate":
+            return await commandHate(message);
         case ".help":
             return await commandHelp(message);
         case ".look":
@@ -133,6 +134,8 @@ async function commands(message: Message) {
             return await commandSay(message);
         case ".slop":
             return await commandSlop(message);
+        case ".stop":
+            return await commandStop(message);
         case ".smite":
             return await commandSmite(message);
         case ".xkcd":
@@ -180,20 +183,51 @@ async function commandGen(message: Message) {
     const loading_msg = await message.reply("-# processing...");
     const writer = new ChunkedReplyWriter(loading_msg);
 
-    // Run the model on the requested prompt
-    const response = await ollama.generate({
-        model: process.env["OLLAMA_TEXT_MODEL"] as string,
-        options: { num_ctx: 16384 },
-        prompt: prompt,
-        stream: true,
-        think: false,
-        raw: true,
-    });
+    // Create an abort controller for the .stop command
+    const { signal, cleanup } = await stopAdd(message);
 
-    // Update the message on each token
-    for await (const chunk of response) {
-        writer.push(chunk.response);
+    try {
+        // Run the model on the requested prompt
+        const response = await ollama.generate({
+            model: process.env["OLLAMA_TEXT_MODEL"] as string,
+            options: { num_ctx: 16384 },
+            prompt: prompt,
+            stream: true,
+            think: false,
+            raw: true,
+        });
+
+        // Update the message on each token
+        for await (const chunk of response) {
+            writer.push(chunk.response);
+            if (signal.aborted) {
+                response.abort();
+                break;
+            }
+        }
+    } finally {
+        cleanup();
     }
+}
+
+const hate_cooldowns: { [key: string]: number } = {};
+async function commandHate(message: Message) {
+    const user = await selectUser(message.content.slice(6), message.guild);
+    if (user === undefined) return await message.reply("-# unknown user");
+
+    // Ratelimit the user if they attempt to use .hate too often
+    const last_time = hate_cooldowns[message.author.id];
+    if (last_time !== undefined) {
+        const rem = Math.ceil((last_time - Date.now()) / 1000 + 60);
+        const rate_msg = `-# slow down! ${rem} seconds remaining...`;
+        if (rem > 0) return await message.reply(rate_msg);
+    }
+
+    const unsendable = !message.channel.isSendable();
+    if (unsendable) return await message.reply("-# channel unsendable");
+    const content = `🗡️💀🔪 ${message.author} hates ${user} 🔪🩸💀`;
+    await (message.channel as SendableChannels).send(content);
+    hate_cooldowns[message.author.id] = Date.now();
 }
 
 async function commandHelp(message: Message) {
@@ -211,22 +245,33 @@ async function commandLook(message: Message) {
         return await message.reply("-# not an image");
 
     // Fetch and convert to base 64 for passing to ollama
-    const img = await (await fetch(file_0.url)).bytes();
     const loading_msg = await message.reply("-# processing...");
     const writer = new ChunkedReplyWriter(loading_msg);
 
-    // Run the model and ask it to describe the image
-    const prompt = "Describe this image in one short paragraph.";
-    const response = await ollama.chat({
-        messages: [{ role: "user", content: prompt, images: [img] }],
-        model: process.env["OLLAMA_IMAGE_MODEL"] as string,
-        stream: true,
-        think: false,
-    });
+    // Create an abort controller for the .stop command
+    const { signal, cleanup } = await stopAdd(message);
 
-    // Update the message on each token
-    for await (const chunk of response) {
-        writer.push(chunk.message.content);
+    try {
+        // Run the model and ask it to describe the image
+        const img = await (await fetch(file_0.url)).bytes();
+        const prompt = "Describe this image in one short paragraph.";
+        const response = await ollama.chat({
+            messages: [{ role: "user", content: prompt, images: [img] }],
+            model: process.env["OLLAMA_IMAGE_MODEL"] as string,
+            stream: true,
+            think: false,
+        });
+
+        // Update the message on each token
+        for await (const chunk of response) {
+            writer.push(chunk.message.content);
+            if (signal.aborted) {
+                response.abort();
+                break;
+            }
+        }
+    } finally {
+        cleanup();
     }
 }
 
@@ -288,8 +333,6 @@ async function commandSay(message: Message) {
     await safeSend(message.channel, message.content.slice(5));
 }
 
-// TODO: you can use slop to cancel messages in-flight
-
 const slop_message_hist: { [key: string]: any } = {};
 async function commandSlop(message: Message) {
     const prompt = message.content.slice(6);
@@ -308,29 +351,47 @@ async function commandSlop(message: Message) {
     const hist_a = { role: "user", content: prompt };
     slop_message_hist[message.channel.id].push(hist_a);
 
-    // Run the model on the requested prompt
-    const response = await ollama.chat({
-        model: process.env["OLLAMA_TEXT_MODEL"] as string,
-        messages: slop_message_hist[message.channel.id],
-        options: { num_ctx: 16384 },
-        stream: true,
-        think: false,
-    });
-
-    // Record the llm response
+    // Record the LLM response
     let response_text = "";
 
+    // Create an abort controller for the .stop command
+    const { signal, cleanup } = await stopAdd(message);
+
     try {
+        // Run the model on the requested prompt
+        const response = await ollama.chat({
+            model: process.env["OLLAMA_TEXT_MODEL"] as string,
+            messages: slop_message_hist[message.channel.id],
+            options: { num_ctx: 16384 },
+            stream: true,
+            think: false,
+        });
+
         // Update the message on each token
         for await (const chunk of response) {
             writer.push(chunk.message.content);
             response_text += chunk.message.content;
+            if (signal.aborted) {
+                response.abort();
+                break;
+            }
         }
     } finally {
         // Store the llm response in the slop history
         const hist_b = { role: "assistant", content: response_text };
         slop_message_hist[message.channel.id].push(hist_b);
+
+        // Clean up the abort controller
+        cleanup();
     }
+}
+
+const stop_queues = new Map<string, AbortController[]>();
+async function commandStop(message: Message) {
+    const controller = stop_queues.get(message.channel.id)?.shift();
+    if (controller === undefined) return message.reply("-# nothing here");
+    controller.abort("aborted via .stop");
+    await message.react("🛑");
 }
 
 const smite_cooldowns: { [key: string]: number } = {};
@@ -386,9 +447,19 @@ class ChunkedReplyWriter {
         // Ensure that the buffer gets the updated text appended
         this.buffer += chunk;
         // Ensure we don't get issues with formatting code
-        this.buffer = this.buffer.replace(/```/g, "`\u200B``");
+        const safe_ticks: string = "\u200B`\u200B`\u200B`\u200B";
+        this.buffer = this.buffer.replace(/```/g, safe_ticks);
         // A change has been made to the buffer, we are dirty
         this.dirty = true;
+        // Send the message edit over to discord
+        this.update().catch((err: any) => {
+            // Report unhandled errors in small lettering
+            const safe = `-# ${err}`.replace(/\s+/g, " ");
+            this.reply.reply(safe).catch(() => {}); // ignore
+        });
+    }
+
+    async update() {
         // Don't update concurrently - we would be ratelimited
         if (this.flushing) return;
         // mark the update as "in flight" - we are sending
@@ -469,6 +540,33 @@ async function selectUser(
     } catch {}
 
     return undefined;
+}
+
+async function stopAdd(message: Message) {
+    const key: string = message.channel.id;
+
+    // Get the list of running abort signals
+    let aborts = stop_queues.get(key);
+    if (aborts === undefined) {
+        aborts = [];
+        stop_queues.set(key, aborts);
+    }
+
+    // Create and add a new abort controller
+    const controller = new AbortController();
+    aborts.push(controller);
+
+    // Provide a function to remove this controller
+    const cleanup = () => {
+        const aborts = stop_queues.get(key);
+        if (aborts === undefined) return;
+        const idx = aborts.indexOf(controller);
+        if (idx !== -1) aborts.splice(idx, 1);
+        if (aborts.length === 0) stop_queues.delete(key);
+    };
+
+    // Return the abort signal and the cleanup function
+    return { signal: controller.signal, cleanup };
 }
 
 async function safeSend(channel: Channel, content: string) {
