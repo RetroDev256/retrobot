@@ -22,7 +22,7 @@ const client = new Client({ intents: intents, partials: partials });
 
 // Display bot user tag when we have logged in
 client.once("clientReady", async (client) => {
-    await debug(`Logged in as ${client.user}`);
+    await debug(`Logged in as ${client.user.displayName}`);
 });
 
 // ----------------------------------------------------------- WELCOME MESSAGES
@@ -180,7 +180,7 @@ async function commandGen(message: Message) {
 
     // Create the original response message to pump tokens
     const loading_msg = await message.reply("-# starting .gen...");
-    const writer = new ChunkedReplyWriter(loading_msg);
+    const chunked_writer = new ChunkedReplyWriter(loading_msg);
 
     // Create an abort controller for the .stop command
     await loading_msg.edit("-# registering for .stop...");
@@ -188,15 +188,15 @@ async function commandGen(message: Message) {
 
     try {
         const body = {
-            model: process.env["OLLAMA_HQ_LLM"] as string,
+            model: process.env["OLLAMA_MODEL"] as string,
             options: { num_ctx: 16384 },
             prompt: prompt,
             stream: true,
-            think: true,
+            raw: true,
         };
 
         // Fetch from the ollama API on the server with the body & signal
-        await loading_msg.edit("-# POST-ing to the ollama API...");
+        await loading_msg.edit("-# waiting on ollama...");
         const response = await fetch("http://localhost:11434/api/generate", {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body),
@@ -210,6 +210,7 @@ async function commandGen(message: Message) {
 
         await loading_msg.edit("-# constructing stream...");
         const reader = response.body.getReader();
+        await loading_msg.edit("-# thinking...");
         const decoder = new TextDecoder();
         let buffer: string = "";
 
@@ -226,7 +227,10 @@ async function commandGen(message: Message) {
             // Process the completed lines from ollama
             for (const line of lines) {
                 const json = JSON.parse(line);
-                writer.push(json.response);
+                
+                if (json.response) {
+                    chunked_writer.push(json.response);
+                }
             }
         }
     } finally {
@@ -270,7 +274,7 @@ async function commandLook(message: Message) {
 
     // Fetch and convert to base 64 for passing to ollama
     const loading_msg = await message.reply("-# starting .look...");
-    const writer = new ChunkedReplyWriter(loading_msg);
+    const chunked_writer = new ChunkedReplyWriter(loading_msg);
 
     // Create an abort controller for the .stop command
     await loading_msg.edit("-# registering for .stop...");
@@ -282,11 +286,11 @@ async function commandLook(message: Message) {
         const img = await (await fetch(file_0.url)).bytes();
         const prompt = "Describe this image in one short paragraph.";
         const msg = { role: "user", content: prompt, images: [img.toBase64()] };
-        const model = process.env["OLLAMA_IMAGE_MODEL"] as string;
+        const model = process.env["OLLAMA_MODEL"] as string;
         const body = { model: model, messages: [msg], stream: true };
 
         // Fetch from the ollama API on the server with the body & signal
-        await loading_msg.edit("-# POST-ing to the ollama API...");
+        await loading_msg.edit("-# waiting on ollama...");
         const response = await fetch("http://localhost:11434/api/chat", {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body),
@@ -300,6 +304,7 @@ async function commandLook(message: Message) {
 
         await loading_msg.edit("-# constructing stream...");
         const reader = response.body.getReader();
+        await loading_msg.edit("-# thinking...");
         const decoder = new TextDecoder();
         let buffer: string = "";
 
@@ -316,7 +321,10 @@ async function commandLook(message: Message) {
             // Process the completed lines from ollama
             for (const line of lines) {
                 const json = JSON.parse(line);
-                writer.push(json.message.content);
+
+                if (json.message.content) {
+                    chunked_writer.push(json.message.content);
+                }
             }
         }
     } finally {
@@ -390,7 +398,7 @@ async function commandSlop(message: Message) {
 
     // Create the original response message to pump tokens
     const loading_msg = await message.reply("-# starting .slop...");
-    const writer = new ChunkedReplyWriter(loading_msg);
+    const chunked_writer = new ChunkedReplyWriter(loading_msg);
 
     // Create a channel message history if it does not exist
     if (slop_message_hist[message.channel.id] === undefined)
@@ -409,15 +417,14 @@ async function commandSlop(message: Message) {
 
     try {
         const body = {
-            model: process.env["OLLAMA_LQ_LLM"] as string,
+            model: process.env["OLLAMA_MODEL"] as string,
             messages: slop_message_hist[message.channel.id],
             options: { num_ctx: 16384 },
             stream: true,
-            think: false,
         };
 
         // Fetch from the ollama API on the server with the body & signal
-        await loading_msg.edit("-# POST-ing to the ollama API...");
+        await loading_msg.edit("-# waiting on ollama...");
         const response = await fetch("http://localhost:11434/api/chat", {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body),
@@ -427,10 +434,11 @@ async function commandSlop(message: Message) {
 
         if (response.body === null)
             // This error should be rare, I hope - not sure about it.
-            return await loading_msg.edit("-# no ollama response body");
+            return await message.reply("-# no ollama response body");
 
         await loading_msg.edit("-# constructing stream...");
         const reader = response.body.getReader();
+        await loading_msg.edit("-# thinking...");
         const decoder = new TextDecoder();
         let buffer: string = "";
 
@@ -447,8 +455,11 @@ async function commandSlop(message: Message) {
             // Process the completed lines from ollama
             for (const line of lines) {
                 const json = JSON.parse(line);
-                writer.push(json.message.content);
-                response_text += json.message.content;
+
+                if (json.message.content) {
+                    chunked_writer.push(json.response);
+                    response_text += json.message.content;
+                }
             }
         }
     } finally {
@@ -521,11 +532,13 @@ class ChunkedReplyWriter {
     async push(chunk: string) {
         // Ensure that the buffer gets the updated text appended
         this.buffer += chunk;
+        // A change has been made to the buffer, we are dirty
+        this.dirty = true;
+
         // Ensure we don't get issues with formatting code
         const safe_ticks: string = "\u200B`\u200B`\u200B`\u200B";
         this.buffer = this.buffer.replace(/```/g, safe_ticks);
-        // A change has been made to the buffer, we are dirty
-        this.dirty = true;
+
         // Send the message edit over to discord
         this.update().catch((err: any) => {
             // Report unhandled errors in small lettering
