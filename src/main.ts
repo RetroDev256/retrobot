@@ -397,7 +397,7 @@ async function commandStop(message: Message) {
 const smite_cooldowns: { [key: string]: number } = {};
 async function commandSmite(message: Message) {
     const user = await selectUser(message.content.slice(7), message.guild);
-    if (user === undefined) return await message.reply("-# unknown user");
+    if (user === undefined) return await message.react("-# unknown user");
 
     // Ratelimit the user if they attempt to use .smite too often
     const last_time = smite_cooldowns[message.author.id];
@@ -419,8 +419,8 @@ async function commandSmite(message: Message) {
         return await safeReply(message, `-# unable to smite ${user}`);
     }
 
-    await message.reply("-# user successfully smitten");
     smite_cooldowns[message.author.id] = Date.now();
+    await message.react("🗡️");
 }
 
 async function commandXkcd(message: Message) {
