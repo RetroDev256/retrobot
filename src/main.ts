@@ -39,6 +39,7 @@ client.on("guildMemberAdd", async (member) => {
 const help_text = `
 **USAGE:**
 -# \`.acr [WORD]\` generate an acronym
+-# \`.bf [CODE]\` evaluate brainf***
 -# \`.calc [EXPR]\` evaluate some math
 -# \`.clear\` clear .slop session
 -# \`.dice [SIDES]\` roll a die
@@ -74,13 +75,13 @@ client.on("messageCreate", async (message) => {
 });
 
 async function reactMaps(message: Message) {
-    const react_map: { [key: string]: string } = { nice: "👌" };
+    const react_map: Record<string, string> = { nice: "👌" };
     const react = react_map[message.content.toLowerCase()];
     if (react !== undefined) return await message.react(react);
 }
 
 async function replyMaps(message: Message) {
-    const reply_map: { [key: string]: string } = {
+    const reply_map: Record<string, string> = {
         f: "-# RIP!",
         "no u": "-# no u",
         sigh: "-# no u",
@@ -107,6 +108,8 @@ async function commands(message: Message) {
     switch (message.content.split(" ")[0]) {
         case ".acr":
             return await commandAcr(message);
+        case ".bf":
+            return await commandBf(message);
         case ".calc":
             return await commandCalc(message);
         case ".clear":
@@ -144,12 +147,9 @@ async function commands(message: Message) {
 
 async function commandAcr(message: Message) {
     // filter out the odd stuff
-    const word = message.content
-        .slice(5)
-        .toLowerCase()
-        .replace(/[^a-z]/g, "");
-
-    if (word === "") return await message.reply("-# missing letters");
+    const word_lower = message.content.slice(5).toLowerCase();
+    const word = word_lower.replace(/[^a-z]/g, "");
+    if (!word) return await message.reply("-# missing letters");
 
     // map each letter to a random word
     const chosen = [];
@@ -162,6 +162,51 @@ async function commandAcr(message: Message) {
 
     // respond with the constructed acronym
     await message.reply("-# " + chosen.join(" "));
+}
+
+async function commandBf(message: Message) {
+    const unfiltered = message.content.slice(4);
+    const bf_code = unfiltered.replace(/[^<>+\-.,[\]]/g, "");
+    if (!bf_code) return await message.reply("-# missing code");
+    const loading_msg = await message.reply("-# transpiling code...");
+    const js_code = transpileJsFromBf(bf_code);
+
+    await loading_msg.edit("-# creating blob...");
+    const blob = new Blob([js_code], { type: "text/javascript" });
+    await loading_msg.edit("-# creating worker...");
+    const worker = new Worker(URL.createObjectURL(blob), { type: "module" });
+    const chunked_writer = new ChunkedReplyWriter(loading_msg, 16);
+
+    const timer = setTimeout(async () => {
+        worker.terminate(); // first for safety
+        await message.reply("-# timed out");
+    }, 30_000);
+
+    worker.onmessage = async (event) => {
+        const data = event.data;
+        switch (data.type) {
+            case "post":
+                worker.postMessage({ type: "ack" });
+                if (!(await chunked_writer.push(data.content))) {
+                    await message.reply("-# message limit reached");
+                    clearTimeout(timer);
+                    worker.terminate();
+                }
+                break;
+            case "done":
+                clearTimeout(timer);
+                worker.terminate();
+                break;
+        }
+    };
+
+    worker.onerror = async (event) => {
+        const location: string = `${event.lineno}:${event.colno}`;
+        const error_msg: string = `${event.message} at ${location}`;
+        await message.reply(`-# ${error_msg}`.replace(/\s+/g, " "));
+        clearTimeout(timer);
+        worker.terminate();
+    };
 }
 
 async function commandCalc(message: Message) {
@@ -180,11 +225,11 @@ async function commandGen(message: Message) {
 
     // Create the original response message to pump tokens
     const loading_msg = await message.reply("-# starting .gen...");
-    const chunked_writer = new ChunkedReplyWriter(loading_msg);
+    const chunked_writer = new ChunkedReplyWriter(loading_msg, 16);
 
     // Create an abort controller for the .stop command
     await loading_msg.edit("-# registering for .stop...");
-    const { signal, cleanup } = await stopAdd(message);
+    const { controller, cleanup } = await stopAdd(message);
 
     try {
         const body = {
@@ -200,8 +245,8 @@ async function commandGen(message: Message) {
         const response = await fetch("http://localhost:11434/api/generate", {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body),
+            signal: controller.signal,
             method: "POST",
-            signal,
         });
 
         if (response.body === null)
@@ -214,10 +259,10 @@ async function commandGen(message: Message) {
         const decoder = new TextDecoder();
         let buffer: string = "";
 
-        while (true) {
+        outer: while (true) {
             // Read the next token from the response stream
             const { value, done } = await reader.read();
-            if (done || signal.aborted) break;
+            if (done || controller.signal.aborted) break;
 
             // Add the decoded value to the buffer
             buffer += decoder.decode(value, { stream: true });
@@ -227,18 +272,23 @@ async function commandGen(message: Message) {
             // Process the completed lines from ollama
             for (const line of lines) {
                 const json = JSON.parse(line);
-                
+
                 if (json.response) {
-                    chunked_writer.push(json.response);
+                    if (!(await chunked_writer.push(json.response))) {
+                        message.reply("-# message limit reached");
+                        break outer;
+                    }
                 }
             }
         }
     } finally {
+        // Ensure that the connection is closed
+        controller.abort();
         cleanup();
     }
 }
 
-const hate_cooldowns: { [key: string]: number } = {};
+const hate_cooldowns: Record<string, number> = {};
 async function commandHate(message: Message) {
     const user = await selectUser(message.content.slice(6), message.guild);
     if (user === undefined) return await message.reply("-# unknown user");
@@ -274,11 +324,11 @@ async function commandLook(message: Message) {
 
     // Fetch and convert to base 64 for passing to ollama
     const loading_msg = await message.reply("-# starting .look...");
-    const chunked_writer = new ChunkedReplyWriter(loading_msg);
+    const chunked_writer = new ChunkedReplyWriter(loading_msg, 16);
 
     // Create an abort controller for the .stop command
     await loading_msg.edit("-# registering for .stop...");
-    const { signal, cleanup } = await stopAdd(message);
+    const { controller, cleanup } = await stopAdd(message);
 
     try {
         // Run the model and ask it to describe the image
@@ -294,8 +344,8 @@ async function commandLook(message: Message) {
         const response = await fetch("http://localhost:11434/api/chat", {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body),
+            signal: controller.signal,
             method: "POST",
-            signal,
         });
 
         if (response.body === null)
@@ -308,10 +358,10 @@ async function commandLook(message: Message) {
         const decoder = new TextDecoder();
         let buffer: string = "";
 
-        while (true) {
+        outer: while (true) {
             // Read the next token from the response stream
             const { value, done } = await reader.read();
-            if (done || signal.aborted) break;
+            if (done || controller.signal.aborted) break;
 
             // Add the decoded value to the buffer
             buffer += decoder.decode(value, { stream: true });
@@ -323,16 +373,21 @@ async function commandLook(message: Message) {
                 const json = JSON.parse(line);
 
                 if (json.message.content) {
-                    chunked_writer.push(json.message.content);
+                    if (!(await chunked_writer.push(json.message.content))) {
+                        await message.reply("-# message limit reached");
+                        break outer;
+                    }
                 }
             }
         }
     } finally {
+        // Ensure that the connection is closed
+        controller.abort();
         cleanup();
     }
 }
 
-const love_cooldowns: { [key: string]: number } = {};
+const love_cooldowns: Record<string, number> = {};
 async function commandLove(message: Message) {
     const user = await selectUser(message.content.slice(6), message.guild);
     if (user === undefined) return await message.reply("-# unknown user");
@@ -390,7 +445,7 @@ async function commandSay(message: Message) {
     await safeSend(message.channel, message.content.slice(5));
 }
 
-const slop_message_hist: { [key: string]: any } = {};
+const slop_message_hist: Record<string, any> = {};
 async function commandSlop(message: Message) {
     const prompt = message.content.slice(6);
     if (prompt.length === 0)
@@ -398,7 +453,7 @@ async function commandSlop(message: Message) {
 
     // Create the original response message to pump tokens
     const loading_msg = await message.reply("-# starting .slop...");
-    const chunked_writer = new ChunkedReplyWriter(loading_msg);
+    const chunked_writer = new ChunkedReplyWriter(loading_msg, 16);
 
     // Create a channel message history if it does not exist
     if (slop_message_hist[message.channel.id] === undefined)
@@ -413,7 +468,7 @@ async function commandSlop(message: Message) {
 
     // Create an abort controller for the .stop command
     await loading_msg.edit("-# registering for .stop...");
-    const { signal, cleanup } = await stopAdd(message);
+    const { controller, cleanup } = await stopAdd(message);
 
     try {
         const body = {
@@ -428,8 +483,8 @@ async function commandSlop(message: Message) {
         const response = await fetch("http://localhost:11434/api/chat", {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body),
+            signal: controller.signal,
             method: "POST",
-            signal,
         });
 
         if (response.body === null)
@@ -445,7 +500,7 @@ async function commandSlop(message: Message) {
         while (true) {
             // Read the next token from the response stream
             const { value, done } = await reader.read();
-            if (done || signal.aborted) break;
+            if (done || controller.signal.aborted) break;
 
             // Add the decoded value to the buffer
             buffer += decoder.decode(value, { stream: true });
@@ -457,18 +512,22 @@ async function commandSlop(message: Message) {
                 const json = JSON.parse(line);
 
                 if (json.message.content) {
-                    chunked_writer.push(json.response);
                     response_text += json.message.content;
+                    if (!(await chunked_writer.push(json.message.content))) {
+                        await message.reply("-# message limit reached");
+                        break;
+                    }
                 }
             }
         }
     } finally {
+        // Ensure that the connection is closed
+        controller.abort();
+        cleanup();
+
         // Store the llm response in the slop history
         const hist_b = { role: "assistant", content: response_text };
         slop_message_hist[message.channel.id].push(hist_b);
-
-        // Clean up the abort controller
-        cleanup();
     }
 }
 
@@ -480,7 +539,7 @@ async function commandStop(message: Message) {
     await message.react("🛑");
 }
 
-const smite_cooldowns: { [key: string]: number } = {};
+const smite_cooldowns: Record<string, number> = {};
 async function commandSmite(message: Message) {
     const user = await selectUser(message.content.slice(7), message.guild);
     if (user === undefined) return await message.react("-# unknown user");
@@ -520,80 +579,78 @@ async function commandXkcd(message: Message) {
 // --------------------------------------------------- COMMAND HELPER FUNCTIONS
 
 class ChunkedReplyWriter {
-    reply: Message;
-    buffer: string = "";
-    dirty: boolean = false;
-    flushing: boolean = false;
+    private limit_exceeded: boolean = false;
+    private text_queue: string[] = [];
+    private flushing: boolean = false;
+    private buffer: string = "";
+    private count: number = 1;
+    private limit: number;
+    private reply: Message;
 
-    constructor(reply: Message) {
+    constructor(reply: Message, msg_limit: number) {
+        this.limit = msg_limit;
         this.reply = reply;
     }
 
-    async push(chunk: string) {
-        // Ensure that the buffer gets the updated text appended
-        this.buffer += chunk;
-        // A change has been made to the buffer, we are dirty
-        this.dirty = true;
+    // Returns false when the limit is exceeded
+    async push(chunk: string): Promise<boolean> {
+        if (this.limit_exceeded) return false;
 
-        // Ensure we don't get issues with formatting code
-        const safe_ticks: string = "\u200B`\u200B`\u200B`\u200B";
-        this.buffer = this.buffer.replace(/```/g, safe_ticks);
-
-        // Send the message edit over to discord
+        this.text_queue.push(chunk);
         this.update().catch((err: any) => {
             // Report unhandled errors in small lettering
             const safe = `-# ${err}`.replace(/\s+/g, " ");
             this.reply.reply(safe).catch(() => {}); // ignore
         });
+
+        return true;
     }
 
-    async update() {
-        // Don't update concurrently - we would be ratelimited
+    private async update() {
+        // RACE CONDITION CAN OCCUR IF TWO OR MORE CONTEXT SWITCHES
+        // FROM ASYNC FUNCTIONS HAPPEN BETWEEN THESE LINES OF CODE
         if (this.flushing) return;
-        // mark the update as "in flight" - we are sending
         this.flushing = true;
 
-        // Continually send updates while our buffer is dirty
-        while (this.dirty) {
-            this.dirty = false;
+        try {
+            while (this.text_queue.length > 0) {
+                // RACE CONDITION CAN OCCUR IF CONTEXT SWITCH
+                // HAPPENS BETWEEN THESE TWO LINES OF CODE
+                const old_queue = this.text_queue;
+                this.text_queue = [];
 
-            if (this.buffer.length > 1994) {
-                // PRIORITY 0: paragraph breaks
-                let split = this.buffer.lastIndexOf("\n\n", 1994);
+                // Add new changes to the text buffer
+                this.buffer += old_queue.join("");
+                old_queue.length = 0;
 
-                if (split < 1000) {
-                    // PRIORITY 1: new lines
-                    split = this.buffer.lastIndexOf("\n", 1994);
-                    if (split < 1500) {
-                        // PRIORITY 2: tabs
-                        split = this.buffer.lastIndexOf("\t", 1994);
-                        if (split < 1750) {
-                            // PRIORITY 3: spaces
-                            split = this.buffer.lastIndexOf(" ", 1994);
-                            if (split < 1950) {
-                                // PRIORITY 4: cutting
-                                split = 1994;
-                            }
-                        }
+                // Escape any triple quotes for code
+                const safe_ticks: string = "\u200B`\u200B`\u200B`\u200B";
+                this.buffer = this.buffer.replace(/```/g, safe_ticks);
+
+                // Split the messages into small enough chunks to use
+                const split = splitMessages(this.buffer);
+                this.buffer = split.at(-1) as string;
+
+                // Edit the content of the latest message
+                const fmt = "```" + split[0] + "```";
+                await safeEdit(this.reply, fmt);
+
+                // Create new messages for the chunks that can't fit
+                for (let index = 1; index < split.length; index++) {
+                    // The limit is exceeded without pushing past our limit
+                    if (this.limit !== 0 && this.count >= this.limit) {
+                        this.limit_exceeded = true;
+                        return;
                     }
+
+                    const fmt = "```" + split[index] + "```";
+                    this.reply = await safeReply(this.reply, fmt);
+                    this.count += 1;
                 }
-
-                // Determine the contents of the two messages
-                const fmt_a = "```" + this.buffer.slice(0, split) + "```";
-                this.buffer = this.buffer.slice(split);
-                const fmt_b = "```" + this.buffer + "```";
-
-                // Update the old reply and send a new reply
-                await safeEdit(this.reply, fmt_a);
-                this.reply = await safeReply(this.reply, fmt_b);
-            } else {
-                // Content can fit within the one message
-                await safeEdit(this.reply, "```" + this.buffer + "```");
             }
+        } finally {
+            this.flushing = false;
         }
-
-        // mark the update as no longer "in flight"
-        this.flushing = false;
     }
 }
 
@@ -630,6 +687,131 @@ async function selectUser(
     return undefined;
 }
 
+function transpileJsFromBf(bf_code: string): string {
+    return `
+        let pending_ack = null;
+
+        function send(content) {
+            return new Promise((resolve) => {
+                pending_ack = resolve;
+                postMessage({ type: "post", content });
+            });
+        }
+
+        onmessage = (event) => {
+            if (event.data.type === "ack") {
+                if (pending_ack) {
+                    const resolve = pending_ack;
+                    pending_ack = null;
+                    resolve();
+                }
+            }
+        };
+
+        (async function() {
+            const bf_code = ${JSON.stringify(bf_code)};
+            const tape = new Uint8Array(30_000);
+            const tape_len = tape.length;
+            const tape_l = tape_len - 1;
+            const tape_r = 1;
+    
+            let tape_idx = 0;
+            let code_idx = 0;
+            let steps = 0;
+    
+            const stack = [];
+            const map = {};
+    
+            // Bracket Matching
+            for (let i = 0; i < bf_code.length; i++) {
+                if (bf_code[i] === "[") {
+                    stack.push(i);
+                } else if (bf_code[i] === "]") {
+                    if (stack.length === 0) throw "unmatched ]";
+                    const j = stack.pop();
+                    map[i] = j;
+                    map[j] = i;
+                }
+            }
+    
+            if (stack.length !== 0) throw \`\${stack.length} unmatched [\`;
+    
+            outer: while (code_idx < bf_code.length) {
+
+                // Self yield every 2^16 steps in the interpreter
+                if (steps === 0) await new Promise(r => setTimeout(r, 0));
+                steps = (steps + 1) % 65536;
+
+                switch (bf_code[code_idx]) {
+                    case ">":
+                        tape_idx = (tape_idx + tape_r) % tape_len;
+                        break;
+                    case "<":
+                        tape_idx = (tape_idx + tape_l) % tape_len;
+                        break;
+                    case "+":
+                        tape[tape_idx]++;
+                        break;
+                    case "-":
+                        tape[tape_idx]--;
+                        break;
+                    case ".":
+                        await send(String.fromCharCode(tape[tape_idx]));
+                        break;
+                    case ",":
+                        await send("\\nINPUT NOT YET IMPLEMENTED\\n");
+                        break outer;
+                    case "[":
+                        if (tape[tape_idx] === 0) code_idx = map[code_idx];
+                        break;
+                    case "]":
+                        if (tape[tape_idx] !== 0) code_idx = map[code_idx];
+                        break;
+                }
+    
+                code_idx++;
+            }
+    
+            // Signal completion of code
+            postMessage({ type: "done" });
+        })();
+    `;
+}
+
+function splitMessages(text: string): string[] {
+    const messages: string[] = [];
+
+    while (text.length > 0) {
+        // PRIORITY 0: message already small
+        let split = text.length;
+        if (split > 1994) {
+            // PRIORITY 1: paragraph breaks
+            split = text.lastIndexOf("\n\n", 1994);
+            if (split < 1000) {
+                // PRIORITY 2: new lines
+                split = text.lastIndexOf("\n", 1994);
+                if (split < 1500) {
+                    // PRIORITY 3: tabs
+                    split = text.lastIndexOf("\t", 1994);
+                    if (split < 1750) {
+                        // PRIORITY 4: spaces
+                        split = text.lastIndexOf(" ", 1994);
+                        if (split < 1950) {
+                            // PRIORITY 5: cutting
+                            split = 1994;
+                        }
+                    }
+                }
+            }
+        }
+
+        messages.push(text.substring(0, split));
+        text = text.substring(split);
+    }
+
+    return messages;
+}
+
 async function stopAdd(message: Message) {
     const key: string = message.channel.id;
 
@@ -653,8 +835,8 @@ async function stopAdd(message: Message) {
         if (aborts.length === 0) stop_queues.delete(key);
     };
 
-    // Return the abort signal and the cleanup function
-    return { signal: controller.signal, cleanup };
+    // Return the abort controller and the cleanup function
+    return { controller: controller, cleanup };
 }
 
 async function safeSend(channel: Channel, content: string) {
