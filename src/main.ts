@@ -44,7 +44,7 @@ const help_text = `
 -# \`.clear\` clear .slop session
 -# \`.dice [SIDES]\` roll a die
 -# \`.flip\` flip a coin
--# \`.gen [TEXT]\` one-shot HQ LLM
+-# \`.gen [TEXT]\` one-shot raw LLM
 -# \`.hate [USER]\` hate a user
 -# \`.help\` display this message
 -# \`.look [IMAGE]\` describe an image
@@ -52,7 +52,7 @@ const help_text = `
 -# \`.msg [USER] [TEXT]\` message a user
 -# \`.note [TEXT]\` message yourself
 -# \`.say [TEXT]\` say something
--# \`.slop [TEXT]\` LQ sessioned LLM
+-# \`.slop [TEXT]\` sessioned LLM
 -# \`.stop\` stop .slop, .gen, and .look
 -# \`.smite [USER]\` mute for 30 seconds
 -# \`.xkcd\` get the latest xkcd
@@ -105,7 +105,7 @@ async function replyGhat(message: Message) {
 }
 
 async function commands(message: Message) {
-    switch (message.content.split(" ")[0]) {
+    switch (message.content.split(/\s/g)[0]) {
         case ".acr":
             return await commandAcr(message);
         case ".bf":
@@ -173,7 +173,7 @@ async function commandBf(message: Message) {
 
     await loading_msg.edit("-# creating blob...");
     const blob = new Blob([js_code], { type: "text/javascript" });
-    await loading_msg.edit("-# creating worker...");
+    await loading_msg.edit("-# running...");
     const worker = new Worker(URL.createObjectURL(blob), { type: "module" });
     const chunked_writer = new ChunkedReplyWriter(loading_msg, 16);
 
@@ -186,11 +186,13 @@ async function commandBf(message: Message) {
         const data = event.data;
         switch (data.type) {
             case "post":
-                worker.postMessage({ type: "ack" });
                 if (!(await chunked_writer.push(data.content))) {
                     await message.reply("-# message limit reached");
                     clearTimeout(timer);
                     worker.terminate();
+                } else {
+                    // Acknowledge to resume execution
+                    worker.postMessage({ type: "ack" });
                 }
                 break;
             case "done":
@@ -325,6 +327,7 @@ async function commandLook(message: Message) {
     // Fetch and convert to base 64 for passing to ollama
     const loading_msg = await message.reply("-# starting .look...");
     const chunked_writer = new ChunkedReplyWriter(loading_msg, 16);
+    const thought_writer = new ThoughtWindowWriter(loading_msg);
 
     // Create an abort controller for the .stop command
     await loading_msg.edit("-# registering for .stop...");
@@ -371,12 +374,13 @@ async function commandLook(message: Message) {
             // Process the completed lines from ollama
             for (const line of lines) {
                 const json = JSON.parse(line);
-
                 if (json.message.content) {
                     if (!(await chunked_writer.push(json.message.content))) {
                         await message.reply("-# message limit reached");
                         break outer;
                     }
+                } else if (json.message.thinking) {
+                    await thought_writer.push(json.message.thinking);
                 }
             }
         }
@@ -454,6 +458,7 @@ async function commandSlop(message: Message) {
     // Create the original response message to pump tokens
     const loading_msg = await message.reply("-# starting .slop...");
     const chunked_writer = new ChunkedReplyWriter(loading_msg, 16);
+    const thought_writer = new ThoughtWindowWriter(loading_msg);
 
     // Create a channel message history if it does not exist
     if (slop_message_hist[message.channel.id] === undefined)
@@ -517,6 +522,8 @@ async function commandSlop(message: Message) {
                         await message.reply("-# message limit reached");
                         break;
                     }
+                } else if (json.message.thinking) {
+                    await thought_writer.push(json.message.thinking);
                 }
             }
         }
@@ -577,6 +584,58 @@ async function commandXkcd(message: Message) {
 }
 
 // --------------------------------------------------- COMMAND HELPER FUNCTIONS
+
+class ThoughtWindowWriter {
+    private text_queue: string[] = [];
+    private flushing: boolean = false;
+    private buffer: string = "";
+    private reply: Message;
+
+    constructor(reply: Message) {
+        this.reply = reply;
+    }
+
+    async push(chunk: string) {
+        this.text_queue.push(chunk);
+        this.update().catch((err: any) => {
+            // Report unhandled errors in small lettering
+            const safe = `-# ${err}`.replace(/\s+/g, " ");
+            this.reply.reply(safe).catch(() => {}); // ignore
+        });
+    }
+
+    private async update() {
+        // RACE CONDITION CAN OCCUR IF TWO OR MORE CONTEXT SWITCHES
+        // FROM ASYNC FUNCTIONS HAPPEN BETWEEN THESE LINES OF CODE
+        if (this.flushing) return;
+        this.flushing = true;
+
+        try {
+            while (this.text_queue.length > 0) {
+                // RACE CONDITION CAN OCCUR IF CONTEXT SWITCH
+                // HAPPENS BETWEEN THESE TWO LINES OF CODE
+                const old_queue = this.text_queue;
+                this.text_queue = [];
+
+                // Add new changes to the text buffer
+                this.buffer += old_queue.join("");
+                old_queue.length = 0;
+
+                // Sanitize buffer input - triple quotes and whitespace
+                const safe_ticks: string = "\u200B`\u200B`\u200B`\u200B";
+                this.buffer = this.buffer.replace(/```/g, safe_ticks);
+                this.buffer = this.buffer.replace(/\s+/g, " ");
+
+                // Sliding window for the message
+                this.buffer = this.buffer.slice(-1980);
+                const fmt = "-# thinking...```" + this.buffer + "```";
+                await safeEdit(this.reply, fmt);
+            }
+        } finally {
+            this.flushing = false;
+        }
+    }
+}
 
 class ChunkedReplyWriter {
     private limit_exceeded: boolean = false;
@@ -687,6 +746,7 @@ async function selectUser(
     return undefined;
 }
 
+// TODO: actual transpiling & backwards branch limiting
 function transpileJsFromBf(bf_code: string): string {
     return `
         let pending_ack = null;
