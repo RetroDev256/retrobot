@@ -185,7 +185,7 @@ async function commandBf(message: Message) {
     const timer = setTimeout(async () => {
         worker.terminate(); // first for safety
         await message.reply("-# timed out");
-    }, 30_000);
+    }, 300_000);
 
     worker.onmessage = async (event) => {
         const data = event.data;
@@ -816,7 +816,7 @@ function bfAstFromCode(bf_code: string): BfAstNode[] {
 }
 
 type IrNode =
-    | { kind: "clr" }
+    | { kind: "clr"; off: number }
     | { kind: "rep"; idx: number }
     | { kind: "out"; off: number }
     | { kind: "inp"; off: number }
@@ -879,15 +879,32 @@ function transpileJsFromBf(bf_code: string): string {
     const ir: IrNode[][] = bfIrFromAst(ast);
     let loop_bodies: string = "";
 
+    // OPTIMIZATION: CLEAR FUNCTION
+    for (let i = 0; i < ir.length; i++) {
+        const nodes = ir[i] as IrNode[];
+        if (nodes.length === 1) {
+            const node = nodes[0] as IrNode;
+            if (node.kind === "inc") {
+                if (node.amt % 2 !== 0) {
+                    (ir[i] as IrNode[])[0] = {
+                        kind: "clr",
+                        off: node.off,
+                    };
+                }
+            }
+        }
+    }
+
     for (let i = 0; i < ir.length; i++) {
         let body = `async function loop_${i}(cell) {`;
         body += "if (cell === 0) return;";
-        body += "branchLimitCheck();";
+        // body += "branchLimitCheck();";
+        body += "await intermittentYield();";
 
         for (const node of ir[i] as IrNode[]) {
             switch (node.kind) {
                 case "clr":
-                    body += "mem[ptr] = 0;";
+                    body += `mem[(ptr + ${node.off}) % 30_000] = 0;`;
                     break;
                 case "rep":
                     body += `await loop_${node.idx}(mem[ptr]);`;
@@ -915,13 +932,20 @@ function transpileJsFromBf(bf_code: string): string {
     }
 
     const header: string = `
-        let branch_count = 0;
-        function branchLimitCheck() {
-            branch_count++;
-            if (branch_count >= 1 << 24) {
-                throw "branch limit reached";
-            }
+        let steps = 0;
+        async function intermittentYield() {
+            // Self yield every 2^16 steps in the interpreter
+            if (steps === 0) await new Promise(r => setTimeout(r, 0));
+            steps = (steps + 1) % 65536;
         }
+
+        // let branch_count = 0;
+        // function branchLimitCheck() {
+        //     branch_count++;
+        //     if (branch_count >= 1 << 24) {
+        //         throw "branch limit reached";
+        //     }
+        // }
 
         let ptr = 0;
         let pending_ack = null;
