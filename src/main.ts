@@ -165,7 +165,12 @@ async function commandAcr(message: Message) {
 }
 
 async function commandBf(message: Message) {
-    const unfiltered = message.content.slice(4);
+    // The unfiltered BF is both text & files
+    let unfiltered = message.content.slice(4);
+    for (const key of message.attachments.values()) {
+        unfiltered += await (await fetch(key.url)).text();
+    }
+
     const bf_code = unfiltered.replace(/[^<>+\-.,[\]]/g, "");
     if (!bf_code) return await message.reply("-# missing code");
     const loading_msg = await message.reply("-# transpiling code...");
@@ -196,6 +201,7 @@ async function commandBf(message: Message) {
                 }
                 break;
             case "done":
+                await message.reply("-# completed");
                 clearTimeout(timer);
                 worker.terminate();
                 break;
@@ -336,8 +342,8 @@ async function commandLook(message: Message) {
     try {
         // Run the model and ask it to describe the image
         await loading_msg.edit("-# downloading image bytes...");
+        const prompt: string = "Describe this image.";
         const img = await (await fetch(file_0.url)).bytes();
-        const prompt = "Describe this image in one short paragraph.";
         const msg = { role: "user", content: prompt, images: [img.toBase64()] };
         const model = process.env["OLLAMA_MODEL"] as string;
         const body = { model: model, messages: [msg], stream: true };
@@ -746,12 +752,183 @@ async function selectUser(
     return undefined;
 }
 
-// TODO: actual transpiling & backwards branch limiting
-function transpileJsFromBf(bf_code: string): string {
-    return `
-        let pending_ack = null;
+type BfAstNode =
+    | { kind: "out" }
+    | { kind: "inp" }
+    | { kind: "dec" }
+    | { kind: "inc" }
+    | { kind: "shl" }
+    | { kind: "shr" }
+    | { kind: "rep"; loop: BfAstNode[] };
 
-        function send(content) {
+function findBfLoopClose(bf_code: string): number {
+    let depth = 0;
+
+    for (let i = 0; i < bf_code.length; i++) {
+        if (bf_code[i] === "[") depth++;
+        else if (bf_code[i] === "]") depth--;
+        if (depth === 0) return i;
+    }
+
+    throw "unmatched loop open";
+}
+
+function bfAstFromCode(bf_code: string): BfAstNode[] {
+    const root: BfAstNode[] = [];
+
+    let index: number = 0;
+    while (index < bf_code.length) {
+        switch (bf_code[index]) {
+            case ".": // OUTPUT
+                root.push({ kind: "out" });
+                break;
+            case ",": // INPUT
+                root.push({ kind: "inp" });
+                break;
+            case "-": // DECREMENT
+                root.push({ kind: "dec" });
+                break;
+            case "+": // INCREMENT
+                root.push({ kind: "inc" });
+                break;
+            case "<": // SHIFT LEFT
+                root.push({ kind: "shl" });
+                break;
+            case ">": // SHIFT RIGHT
+                root.push({ kind: "shr" });
+                break;
+            case "[": // LOOP OPEN
+                const end = findBfLoopClose(bf_code.slice(index));
+                const loop_bf = bf_code.slice(index + 1, index + end);
+                root.push({ kind: "rep", loop: bfAstFromCode(loop_bf) });
+                index += end;
+                break;
+            case "]": // LOOP CLOSE
+                throw "unexpected loop close";
+            default: // OTHER
+                throw "unexpected character";
+        }
+
+        index += 1;
+    }
+
+    return root;
+}
+
+type IrNode =
+    | { kind: "clr" }
+    | { kind: "rep"; idx: number }
+    | { kind: "out"; off: number }
+    | { kind: "inp"; off: number }
+    | { kind: "shr"; amt: number }
+    | { kind: "inc"; off: number; amt: number };
+
+function bfEqualIr(a: IrNode[], b: IrNode[]): boolean {
+    return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function bfIrFromAst(full_ast: BfAstNode[]): IrNode[][] {
+    const loops: IrNode[][] = [];
+
+    function compileBf(ast: BfAstNode[]): number {
+        const ir: IrNode[] = [];
+
+        for (const node of ast) {
+            switch (node.kind) {
+                case "out":
+                    ir.push({ kind: "out", off: 0 });
+                    break;
+                case "inp":
+                    ir.push({ kind: "inp", off: 0 });
+                    break;
+                case "dec":
+                    ir.push({ kind: "inc", off: 0, amt: 255 });
+                    break;
+                case "inc":
+                    ir.push({ kind: "inc", off: 0, amt: 1 });
+                    break;
+                case "shl":
+                    ir.push({ kind: "shr", amt: 29_999 });
+                    break;
+                case "shr":
+                    ir.push({ kind: "shr", amt: 1 });
+                    break;
+                case "rep":
+                    const child_idx = compileBf(node.loop);
+                    ir.push({ kind: "rep", idx: child_idx });
+                    break;
+            }
+        }
+
+        for (let idx = 0; idx < loops.length; idx++) {
+            const loop = loops[idx] as IrNode[];
+            if (bfEqualIr(loop, ir)) return idx;
+        }
+
+        const idx = loops.length;
+        loops.push(ir);
+        return idx;
+    }
+
+    compileBf(full_ast);
+    return loops;
+}
+
+function transpileJsFromBf(bf_code: string): string {
+    const ast: BfAstNode[] = bfAstFromCode(bf_code);
+    const ir: IrNode[][] = bfIrFromAst(ast);
+    let loop_bodies: string = "";
+
+    for (let i = 0; i < ir.length; i++) {
+        let body = `async function loop_${i}(cell) {`;
+        body += "if (cell === 0) return;";
+        body += "branchLimitCheck();";
+
+        for (const node of ir[i] as IrNode[]) {
+            switch (node.kind) {
+                case "clr":
+                    body += "mem[ptr] = 0;";
+                    break;
+                case "rep":
+                    body += `await loop_${node.idx}(mem[ptr]);`;
+                    break;
+                case "out":
+                    body += `await print(mem[(ptr + ${node.off}) % 30_000]);`;
+                    break;
+                case "inp":
+                    body += `throw "input unimplemented";`;
+                    break;
+                case "shr":
+                    body += `ptr = (ptr + ${node.amt}) % 30_000;`;
+                    break;
+                case "inc":
+                    body += `mem[(ptr + ${node.off}) % 30_000] += ${node.amt};`;
+                    break;
+            }
+        }
+
+        if (i !== ir.length - 1) {
+            body += `await loop_${i}(mem[ptr]);`;
+        }
+
+        loop_bodies += body + "}";
+    }
+
+    const header: string = `
+        let branch_count = 0;
+        function branchLimitCheck() {
+            branch_count++;
+            if (branch_count >= 1 << 24) {
+                throw "branch limit reached";
+            }
+        }
+
+        let ptr = 0;
+        let pending_ack = null;
+        const mem = new Uint8Array(30_000);
+
+        function print(char) {
+            const content = String.fromCharCode(char);
             return new Promise((resolve) => {
                 pending_ack = resolve;
                 postMessage({ type: "post", content });
@@ -767,75 +944,16 @@ function transpileJsFromBf(bf_code: string): string {
                 }
             }
         };
+    `;
 
+    const footer: string = `
         (async function() {
-            const bf_code = ${JSON.stringify(bf_code)};
-            const tape = new Uint8Array(30_000);
-            const tape_len = tape.length;
-            const tape_l = tape_len - 1;
-            const tape_r = 1;
-    
-            let tape_idx = 0;
-            let code_idx = 0;
-            let steps = 0;
-    
-            const stack = [];
-            const map = {};
-    
-            // Bracket Matching
-            for (let i = 0; i < bf_code.length; i++) {
-                if (bf_code[i] === "[") {
-                    stack.push(i);
-                } else if (bf_code[i] === "]") {
-                    if (stack.length === 0) throw "unmatched ]";
-                    const j = stack.pop();
-                    map[i] = j;
-                    map[j] = i;
-                }
-            }
-    
-            if (stack.length !== 0) throw \`\${stack.length} unmatched [\`;
-    
-            outer: while (code_idx < bf_code.length) {
-
-                // Self yield every 2^16 steps in the interpreter
-                if (steps === 0) await new Promise(r => setTimeout(r, 0));
-                steps = (steps + 1) % 65536;
-
-                switch (bf_code[code_idx]) {
-                    case ">":
-                        tape_idx = (tape_idx + tape_r) % tape_len;
-                        break;
-                    case "<":
-                        tape_idx = (tape_idx + tape_l) % tape_len;
-                        break;
-                    case "+":
-                        tape[tape_idx]++;
-                        break;
-                    case "-":
-                        tape[tape_idx]--;
-                        break;
-                    case ".":
-                        await send(String.fromCharCode(tape[tape_idx]));
-                        break;
-                    case ",":
-                        await send("\\nINPUT NOT YET IMPLEMENTED\\n");
-                        break outer;
-                    case "[":
-                        if (tape[tape_idx] === 0) code_idx = map[code_idx];
-                        break;
-                    case "]":
-                        if (tape[tape_idx] !== 0) code_idx = map[code_idx];
-                        break;
-                }
-    
-                code_idx++;
-            }
-    
-            // Signal completion of code
+            await loop_${ir.length - 1}(1);
             postMessage({ type: "done" });
         })();
     `;
+
+    return header + loop_bodies + footer;
 }
 
 function splitMessages(text: string): string[] {
